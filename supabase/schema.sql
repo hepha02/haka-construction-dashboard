@@ -35,6 +35,18 @@ create policy "public read payments" on public.payments for select using (true);
 create policy "public read stores" on public.stores for select using (true);
 create policy "public read vendors" on public.vendors for select using (true);
 
+drop policy if exists "public insert stores" on public.stores;
+create policy "public insert stores"
+on public.stores
+for insert
+with check (
+  length(trim(name)) > 0
+  and area > 0
+  and budget > 0
+  and spent >= 0
+  and status in ('완료', '진행중', '미착공')
+);
+
 drop policy if exists "public insert vendors" on public.vendors;
 create policy "public insert vendors"
 on public.vendors

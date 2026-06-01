@@ -202,6 +202,51 @@ async function submitVendor(event) {
   render("업체/계좌 정보가 저장됐습니다.");
 }
 
+async function submitStore(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  const message = form.querySelector("[data-store-message]");
+  const formData = new FormData(form);
+  const store = {
+    name: String(formData.get("name") || "").trim(),
+    area: Number(formData.get("area")),
+    status: String(formData.get("status") || "미착공"),
+    budget: parseAmount(formData.get("budget")),
+    spent: parseAmount(formData.get("spent"))
+  };
+
+  if (!store.name || !store.area || !store.budget) {
+    message.textContent = "매장명, 면적, 예산을 입력해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = "저장 중";
+  message.textContent = "매장 공사 정보를 저장하고 있습니다.";
+  message.className = "form-message";
+
+  if (!supabase) {
+    fallback.stores = [{ id: Date.now(), ...store }, ...fallback.stores];
+  } else {
+    const { error } = await supabase.from("stores").insert(store);
+    if (error) {
+      submitButton.disabled = false;
+      submitButton.textContent = "매장 저장";
+      message.textContent = `저장 실패: ${error.message}`;
+      message.className = "form-message error";
+      return;
+    }
+  }
+
+  form.reset();
+  currentData = await loadData();
+  activeView = "매장별 공사 관리";
+  render("매장 공사 정보가 저장됐습니다.");
+}
+
 function kpiData(data) {
   const completed = data.stores.filter((store) => store.status === "완료").length;
   const active = data.stores.filter((store) => store.status === "진행중").length;
@@ -327,6 +372,32 @@ function vendorForm() {
   `;
 }
 
+function storeForm() {
+  return `
+    <article class="panel form-panel">
+      <div class="panel-head">
+        <h2>매장 공사 추가</h2>
+      </div>
+      <div class="notice">매장별 면적, 예산, 실제 사용액과 공사 상태를 등록합니다.</div>
+      <form id="store-form">
+        <label>매장명<input name="name" placeholder="예: 강남 플래그십" autocomplete="off" /></label>
+        <label>면적<input name="area" inputmode="numeric" placeholder="예: 45" autocomplete="off" /></label>
+        <label>예산<input name="budget" inputmode="numeric" placeholder="예: 180000000" autocomplete="off" /></label>
+        <label>현재 사용액<input name="spent" inputmode="numeric" placeholder="예: 0" autocomplete="off" /></label>
+        <label>공사 상태
+          <select name="status">
+            <option value="미착공">미착공</option>
+            <option value="진행중">진행중</option>
+            <option value="완료">완료</option>
+          </select>
+        </label>
+        <p class="form-message" data-store-message></p>
+        <button class="primary wide" type="submit">매장 저장</button>
+      </form>
+    </article>
+  `;
+}
+
 function dashboardView(data) {
   return `
     <section class="kpis">
@@ -406,16 +477,13 @@ function vendorsView(data) {
 function storesView(data) {
   return `
     <section class="grid two">
+      ${storeForm()}
       <article class="panel">
         <div class="panel-head">
-          <h2>매장별 공사 관리</h2>
-          <button>매장 추가 준비중</button>
+          <h2>매장별 공사 목록</h2>
+          <button>${data.stores.length}개 매장</button>
         </div>
         ${table(["매장", "면적", "예산", "사용액", "상태"], storeRows(data))}
-      </article>
-      <article class="panel empty-panel">
-        <h2>이 화면에서 체크할 것</h2>
-        <p>매장별 면적, 예산, 실제 사용액, 공사 진행 상태를 확인하고 수정하게 됩니다.</p>
       </article>
     </section>
   `;
@@ -497,6 +565,9 @@ function render(notice = "") {
 
   const vendorFormElement = document.querySelector("#vendor-form");
   if (vendorFormElement) vendorFormElement.addEventListener("submit", submitVendor);
+
+  const storeFormElement = document.querySelector("#store-form");
+  if (storeFormElement) storeFormElement.addEventListener("submit", submitStore);
 }
 
 loadData().then((data) => {
