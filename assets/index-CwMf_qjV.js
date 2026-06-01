@@ -190,7 +190,7 @@ import{createClient as E}from"https://esm.sh/@supabase/supabase-js@2.49.1";(func
       <strong>${g}</strong>
       <button data-sign-out>로그아웃</button>
     </div>
-  `}function h(t=""){const e=document.querySelector("#app");e.innerHTML=`
+  `}function h(t=""){const e=document.querySelector("#app");e.className="auth-shell",e.innerHTML=`
     <main class="auth-page">
       <section class="auth-panel">
         <div class="brand auth-brand">
@@ -211,7 +211,7 @@ import{createClient as E}from"https://esm.sh/@supabase/supabase-js@2.49.1";(func
         </form>
       </section>
     </main>
-  `,document.querySelector("#auth-form").addEventListener("submit",se),document.querySelector("[data-auth-action='signup']").addEventListener("click",re)}async function se(t){t.preventDefault();const e=new FormData(t.currentTarget),a=String(e.get("email")||"").trim(),s=String(e.get("password")||"");if(!a||!s){h("이메일과 비밀번호를 입력해 주세요.");return}const{data:n,error:r}=await c.auth.signInWithPassword({email:a,password:s});if(r){h(`로그인 실패: ${r.message}`);return}f=n.user,g=await D(f),l=p()[0],m=await y(),d()}async function re(){const t=document.querySelector("#auth-form"),e=new FormData(t),a=String(e.get("email")||"").trim(),s=String(e.get("password")||"");if(!a||!s){h("계정을 만들 이메일과 비밀번호를 입력해 주세요.");return}const{error:n}=await c.auth.signUp({email:a,password:s});if(n){h(`회원가입 실패: ${n.message}`);return}h("계정이 생성됐습니다. 이메일 확인이 필요한 경우 메일 인증 후 로그인해 주세요.")}async function oe(){await c.auth.signOut(),f=null,g="인테리어 공사실장",h("로그아웃되었습니다.")}function d(t=""){var r;const e=document.querySelector("#app");p().includes(l)||(l=p()[0]),e.innerHTML=`
+  `,document.querySelector("#auth-form").addEventListener("submit",se),document.querySelector("[data-auth-action='signup']").addEventListener("click",re)}async function se(t){t.preventDefault();const e=new FormData(t.currentTarget),a=String(e.get("email")||"").trim(),s=String(e.get("password")||"");if(!a||!s){h("이메일과 비밀번호를 입력해 주세요.");return}const{data:n,error:r}=await c.auth.signInWithPassword({email:a,password:s});if(r){h(`로그인 실패: ${r.message}`);return}f=n.user,g=await D(f),l=p()[0],m=await y(),d()}async function re(){const t=document.querySelector("#auth-form"),e=new FormData(t),a=String(e.get("email")||"").trim(),s=String(e.get("password")||"");if(!a||!s){h("계정을 만들 이메일과 비밀번호를 입력해 주세요.");return}const{error:n}=await c.auth.signUp({email:a,password:s});if(n){h(`회원가입 실패: ${n.message}`);return}h("계정이 생성됐습니다. 이메일 확인이 필요한 경우 메일 인증 후 로그인해 주세요.")}async function oe(){await c.auth.signOut(),f=null,g="인테리어 공사실장",h("로그아웃되었습니다.")}function d(t=""){var r;const e=document.querySelector("#app");e.className="",p().includes(l)||(l=p()[0]),e.innerHTML=`
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark">H</span>
