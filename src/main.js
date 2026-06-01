@@ -637,6 +637,7 @@ function roleControl() {
 
 function renderLogin(message = "") {
   const app = document.querySelector("#app");
+  app.className = "auth-shell";
   app.innerHTML = `
     <main class="auth-page">
       <section class="auth-panel">
@@ -717,6 +718,7 @@ async function signOut() {
 
 function render(notice = "") {
   const app = document.querySelector("#app");
+  app.className = "";
   if (!visibleNav().includes(activeView)) {
     activeView = visibleNav()[0];
   }
