@@ -329,6 +329,12 @@ function vendorOptions(data) {
     .join("");
 }
 
+function storeOptions(data) {
+  return data.stores
+    .map((store) => `<option value="${store.name}">${store.name} / ${store.area}평 / ${store.status}</option>`)
+    .join("");
+}
+
 function paymentForm() {
   return `
     <article class="panel form-panel">
@@ -337,7 +343,12 @@ function paymentForm() {
       </div>
       <div class="notice">등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다.</div>
       <form id="payment-form">
-        <label>매장명<input name="store" placeholder="예: 성수 플래그십" autocomplete="off" /></label>
+        <label>매장
+          <select name="store">
+            <option value="">매장을 선택하세요</option>
+            ${storeOptions(currentData)}
+          </select>
+        </label>
         <label>협력업체
           <select name="vendor">
             <option value="">업체를 선택하세요</option>
