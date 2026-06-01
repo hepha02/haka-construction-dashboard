@@ -64,7 +64,6 @@ const formatKRW = (value) =>
   }).format(value || 0);
 
 const today = () => new Date().toISOString().slice(0, 10);
-
 const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
 
 const statusClass = (status) => {
@@ -118,7 +117,7 @@ async function submitPayment(event) {
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
 
   if (!store || !vendor || !amount) {
-    message.textContent = "매장명, 업체명, 신청 금액을 모두 입력해 주세요.";
+    message.textContent = "매장명, 업체, 신청 금액을 모두 입력해 주세요.";
     message.className = "form-message error";
     return;
   }
@@ -279,16 +278,27 @@ function vendorRows(data) {
   );
 }
 
+function vendorOptions(data) {
+  return data.vendors
+    .map((vendor) => `<option value="${vendor.name}">${vendor.name} / ${vendor.bank} ${vendor.account_number || ""}</option>`)
+    .join("");
+}
+
 function paymentForm() {
   return `
     <article class="panel form-panel">
       <div class="panel-head">
         <h2>결제 신청 입력</h2>
       </div>
-      <div class="notice">같은 업체와 비슷한 금액의 최근 신청 건이 있으면 중복 의심으로 표시됩니다.</div>
+      <div class="notice">등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다.</div>
       <form id="payment-form">
         <label>매장명<input name="store" placeholder="예: 성수 플래그십" autocomplete="off" /></label>
-        <label>협력업체<input name="vendor" placeholder="업체명을 입력" autocomplete="off" /></label>
+        <label>협력업체
+          <select name="vendor">
+            <option value="">업체를 선택하세요</option>
+            ${vendorOptions(currentData)}
+          </select>
+        </label>
         <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">검토 요청 생성</button>
