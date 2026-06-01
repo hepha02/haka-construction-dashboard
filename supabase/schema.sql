@@ -21,6 +21,8 @@ create table if not exists public.vendors (
   name text not null,
   category text not null,
   bank text not null,
+  account_number text,
+  account_holder text,
   risk text not null default '정상',
   total bigint not null default 0
 );
@@ -32,6 +34,20 @@ alter table public.vendors enable row level security;
 create policy "public read payments" on public.payments for select using (true);
 create policy "public read stores" on public.stores for select using (true);
 create policy "public read vendors" on public.vendors for select using (true);
+
+drop policy if exists "public insert vendors" on public.vendors;
+create policy "public insert vendors"
+on public.vendors
+for insert
+with check (
+  length(trim(name)) > 0
+  and length(trim(category)) > 0
+  and length(trim(bank)) > 0
+  and length(trim(account_number)) > 0
+  and length(trim(account_holder)) > 0
+  and risk = '정상'
+  and total = 0
+);
 
 drop policy if exists "public insert payments" on public.payments;
 create policy "public insert payments"

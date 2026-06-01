@@ -24,9 +24,9 @@ const fallback = {
     { id: 4, name: "제주 노형", area: 42, status: "미착공", budget: 158000000, spent: 0 }
   ],
   vendors: [
-    { id: 1, name: "도원인테리어", category: "시공", bank: "신한은행", risk: "정상", total: 124500000 },
-    { id: 2, name: "한빛전기", category: "전기", bank: "국민은행", risk: "정상", total: 73800000 },
-    { id: 3, name: "서진설비", category: "설비", bank: "하나은행", risk: "증빙확인", total: 41200000 }
+    { id: 1, name: "도원인테리어", category: "시공", bank: "신한은행", account_number: "110-000-000001", account_holder: "도원인테리어", risk: "정상", total: 124500000 },
+    { id: 2, name: "한빛전기", category: "전기", bank: "국민은행", account_number: "004-000-000002", account_holder: "한빛전기", risk: "정상", total: 73800000 },
+    { id: 3, name: "서진설비", category: "설비", bank: "하나은행", account_number: "352-000-000003", account_holder: "서진설비", risk: "증빙확인", total: 41200000 }
   ]
 };
 
@@ -155,6 +155,53 @@ async function submitPayment(event) {
   render(duplicate ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
 }
 
+async function submitVendor(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  const message = form.querySelector("[data-vendor-message]");
+  const formData = new FormData(form);
+  const vendor = {
+    name: String(formData.get("name") || "").trim(),
+    category: String(formData.get("category") || "").trim(),
+    bank: String(formData.get("bank") || "").trim(),
+    account_number: String(formData.get("account_number") || "").trim(),
+    account_holder: String(formData.get("account_holder") || "").trim(),
+    risk: "정상",
+    total: 0
+  };
+
+  if (!vendor.name || !vendor.category || !vendor.bank || !vendor.account_number || !vendor.account_holder) {
+    message.textContent = "업체명, 분류, 은행, 계좌번호, 예금주를 모두 입력해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = "저장 중";
+  message.textContent = "업체/계좌 정보를 저장하고 있습니다.";
+  message.className = "form-message";
+
+  if (!supabase) {
+    fallback.vendors = [{ id: Date.now(), ...vendor }, ...fallback.vendors];
+  } else {
+    const { error } = await supabase.from("vendors").insert(vendor);
+    if (error) {
+      submitButton.disabled = false;
+      submitButton.textContent = "업체 저장";
+      message.textContent = `저장 실패: ${error.message}`;
+      message.className = "form-message error";
+      return;
+    }
+  }
+
+  form.reset();
+  currentData = await loadData();
+  activeView = "업체/계좌 관리";
+  render("업체/계좌 정보가 저장됐습니다.");
+}
+
 function kpiData(data) {
   const completed = data.stores.filter((store) => store.status === "완료").length;
   const active = data.stores.filter((store) => store.status === "진행중").length;
@@ -223,6 +270,8 @@ function vendorRows(data) {
         <td>${vendor.name}</td>
         <td>${vendor.category}</td>
         <td>${vendor.bank}</td>
+        <td>${vendor.account_number || "-"}</td>
+        <td>${vendor.account_holder || "-"}</td>
         <td class="money">${formatKRW(vendor.total)}</td>
         <td><span class="badge ${statusClass(vendor.risk)}">${vendor.risk}</span></td>
       </tr>`
@@ -242,6 +291,26 @@ function paymentForm() {
         <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">검토 요청 생성</button>
+      </form>
+    </article>
+  `;
+}
+
+function vendorForm() {
+  return `
+    <article class="panel form-panel">
+      <div class="panel-head">
+        <h2>업체/계좌 추가</h2>
+      </div>
+      <div class="notice">결제 신청 전에 협력업체와 지급 계좌를 먼저 등록합니다.</div>
+      <form id="vendor-form">
+        <label>업체명<input name="name" placeholder="예: 도원인테리어" autocomplete="off" /></label>
+        <label>공종 분류<input name="category" placeholder="예: 시공, 전기, 설비" autocomplete="off" /></label>
+        <label>은행명<input name="bank" placeholder="예: 신한은행" autocomplete="off" /></label>
+        <label>계좌번호<input name="account_number" placeholder="예: 110-000-000000" autocomplete="off" /></label>
+        <label>예금주<input name="account_holder" placeholder="예: 도원인테리어" autocomplete="off" /></label>
+        <p class="form-message" data-vendor-message></p>
+        <button class="primary wide" type="submit">업체 저장</button>
       </form>
     </article>
   `;
@@ -286,7 +355,7 @@ function dashboardView(data) {
           <h2>주요 협력업체</h2>
           <button data-view-link="업체/계좌 관리">업체 추가</button>
         </div>
-        ${table(["업체", "분류", "은행", "누적 지급", "상태"], vendorRows(data))}
+        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "누적 지급", "상태"], vendorRows(data))}
       </article>
       ${paymentForm()}
     </section>
@@ -311,16 +380,13 @@ function paymentView(data) {
 function vendorsView(data) {
   return `
     <section class="grid two">
+      ${vendorForm()}
       <article class="panel">
         <div class="panel-head">
-          <h2>업체/계좌 관리</h2>
-          <button>업체 추가 준비중</button>
+          <h2>업체/계좌 목록</h2>
+          <button>${data.vendors.length}개 등록</button>
         </div>
-        ${table(["업체", "분류", "은행", "누적 지급", "상태"], vendorRows(data))}
-      </article>
-      <article class="panel empty-panel">
-        <h2>이 화면에서 체크할 것</h2>
-        <p>업체명, 공종 분류, 은행/계좌 정보, 증빙 상태, 누적 지급액을 관리합니다.</p>
+        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "누적 지급", "상태"], vendorRows(data))}
       </article>
     </section>
   `;
@@ -415,8 +481,11 @@ function render(notice = "") {
     });
   });
 
-  const form = document.querySelector("#payment-form");
-  if (form) form.addEventListener("submit", submitPayment);
+  const paymentFormElement = document.querySelector("#payment-form");
+  if (paymentFormElement) paymentFormElement.addEventListener("submit", submitPayment);
+
+  const vendorFormElement = document.querySelector("#vendor-form");
+  if (vendorFormElement) vendorFormElement.addEventListener("submit", submitVendor);
 }
 
 loadData().then((data) => {
