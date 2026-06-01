@@ -275,24 +275,25 @@ async function updatePaymentStatus(paymentId, status) {
 function kpiData(data) {
   const completed = data.stores.filter((store) => store.status === "완료").length;
   const active = data.stores.filter((store) => store.status === "진행중").length;
+  const documentTargets = data.stores.filter((store) => store.document_required).length;
   const approved = data.payments
     .filter((payment) => payment.status === "승인")
     .reduce((sum, payment) => sum + payment.amount, 0);
-  const spent = data.stores.reduce((sum, store) => sum + store.spent, 0);
+  const spent = data.stores.reduce((sum, store) => sum + Number(store.spent || 0), 0);
   const pending = data.payments.filter((payment) => payment.status === "신청").length;
-  const proofMissing = data.vendors.filter((vendor) => vendor.risk === "증빙확인").length;
-  const suspected = data.payments.filter((payment) => payment.amount > 30000000).length;
-  const average = Math.round(spent / Math.max(data.stores.reduce((sum, store) => sum + store.area, 0), 1));
+  const directStores = data.stores.filter((store) => String(store.name || "").includes("직영점")).length;
+  const totalArea = data.stores.reduce((sum, store) => sum + Number(store.area || 0), 0);
+  const average = Math.round(spent / Math.max(totalArea, 1));
 
   return [
-    ["완료된 매장", `${completed}개`, "준공 및 정산 완료"],
+    ["완료된 매장", `${completed}개`, "엑셀 공사 상태 기준"],
     ["진행중인 매장", `${active}개`, "시공 또는 비용 검수 중"],
-    ["승인된 공사비", formatKRW(approved), "지급 승인 완료"],
-    ["실제 사용액", formatKRW(spent), "전체 매장 누적"],
+    ["전체 공사비", formatKRW(spent), "엑셀 합계 기준"],
+    ["문서 생성 대상", `${documentTargets}개`, "강남압구정 행부터 아래"],
     ["대기중인 결제", `${pending}건`, "승인 전 검토 필요"],
-    ["증빙 미비", `${proofMissing}건`, "자료 보완 요청"],
-    ["중복 의심", `${suspected}건`, "금액/업체 패턴 확인"],
-    ["평균 평당 원가", formatKRW(average), "실사용액 기준"]
+    ["직영점", `${directStores}개`, "지점명 기준"],
+    ["승인된 결제", formatKRW(approved), "지급 승인 완료"],
+    ["평균 평당 원가", formatKRW(average), "엑셀 합계/평수 기준"]
   ];
 }
 
@@ -347,11 +348,13 @@ function storeRows(data) {
   return data.stores.map(
     (store) => `
       <tr>
+        <td>${store.region || "-"}</td>
         <td>${store.name}</td>
+        <td>${store.fixture_count || 0}</td>
         <td>${store.area}평</td>
         <td class="money">${formatKRW(store.budget)}</td>
-        <td class="money">${formatKRW(store.spent)}</td>
         <td><span class="badge ${statusClass(store.status)}">${store.status}</span></td>
+        <td><span class="badge ${store.document_required ? "blue" : "gray"}">${store.document_required ? "생성 대상" : "출력 완료"}</span></td>
       </tr>`
   );
 }
@@ -486,7 +489,7 @@ function dashboardView(data) {
           <h2>매장 공사 현황</h2>
           <button data-view-link="매장별 공사 관리">관리</button>
         </div>
-        ${table(["매장", "면적", "예산", "사용액", "상태"], storeRows(data))}
+        ${table(["지역", "매장", "진열장", "평수", "공사비 합계", "상태", "문서"], storeRows(data))}
       </article>
     </section>
 
@@ -542,7 +545,7 @@ function storesView(data) {
           <h2>매장별 공사 목록</h2>
           <button>${data.stores.length}개 매장</button>
         </div>
-        ${table(["매장", "면적", "예산", "사용액", "상태"], storeRows(data))}
+        ${table(["지역", "매장", "진열장", "평수", "공사비 합계", "상태", "문서"], storeRows(data))}
       </article>
     </section>
   `;
