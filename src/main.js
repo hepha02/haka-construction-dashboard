@@ -656,6 +656,7 @@ function renderLogin(message = "") {
           <label>비밀번호<input name="password" type="password" autocomplete="current-password" /></label>
           <button class="primary wide" type="submit" data-auth-action="login">로그인</button>
           <button class="wide" type="button" data-auth-action="signup">계정 만들기</button>
+          <button class="wide" type="button" data-auth-action="resend">인증메일 다시 받기</button>
         </form>
       </section>
     </main>
@@ -663,6 +664,7 @@ function renderLogin(message = "") {
 
   document.querySelector("#auth-form").addEventListener("submit", handleLogin);
   document.querySelector("[data-auth-action='signup']").addEventListener("click", handleSignup);
+  document.querySelector("[data-auth-action='resend']").addEventListener("click", handleResendVerification);
 }
 
 async function handleLogin(event) {
@@ -700,13 +702,45 @@ async function handleSignup() {
     return;
   }
 
-  const { error } = await supabase.auth.signUp({ email, password });
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: window.location.origin + window.location.pathname
+    }
+  });
   if (error) {
     renderLogin(`회원가입 실패: ${error.message}`);
     return;
   }
 
   renderLogin("계정이 생성됐습니다. 이메일 확인이 필요한 경우 메일 인증 후 로그인해 주세요.");
+}
+
+async function handleResendVerification() {
+  const form = document.querySelector("#auth-form");
+  const formData = new FormData(form);
+  const email = String(formData.get("email") || "").trim();
+
+  if (!email) {
+    renderLogin("인증메일을 다시 받을 이메일을 입력해 주세요.");
+    return;
+  }
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: {
+      emailRedirectTo: window.location.origin + window.location.pathname
+    }
+  });
+
+  if (error) {
+    renderLogin(`인증메일 재발송 실패: ${error.message}`);
+    return;
+  }
+
+  renderLogin("인증메일을 다시 보냈습니다. 새로 받은 메일의 링크를 눌러 주세요.");
 }
 
 async function signOut() {
