@@ -72,6 +72,13 @@ with check (
   and length(trim(vendor)) > 0
 );
 
+drop policy if exists "public update pending payments" on public.payments;
+create policy "public update pending payments"
+on public.payments
+for update
+using (status = '신청')
+with check (status in ('승인', '반려'));
+
 insert into public.payments (store, vendor, amount, status, requested_at) values
   ('성수 플래그십', '한빛전기', 18400000, '승인', '2026-05-28'),
   ('부산 센텀', '도원인테리어', 32700000, '신청', '2026-05-27'),

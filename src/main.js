@@ -247,6 +247,31 @@ async function submitStore(event) {
   render("매장 공사 정보가 저장됐습니다.");
 }
 
+async function updatePaymentStatus(paymentId, status) {
+  if (!paymentId || !["승인", "반려"].includes(status)) return;
+
+  if (!supabase) {
+    fallback.payments = fallback.payments.map((payment) =>
+      payment.id === paymentId ? { ...payment, status } : payment
+    );
+  } else {
+    const { error } = await supabase
+      .from("payments")
+      .update({ status })
+      .eq("id", paymentId)
+      .eq("status", "신청");
+
+    if (error) {
+      render(`상태 변경 실패: ${error.message}`);
+      return;
+    }
+  }
+
+  currentData = await loadData();
+  activeView = "결제 신청";
+  render(`결제 신청이 ${status} 처리됐습니다.`);
+}
+
 function kpiData(data) {
   const completed = data.stores.filter((store) => store.status === "완료").length;
   const active = data.stores.filter((store) => store.status === "진행중").length;
@@ -291,6 +316,29 @@ function paymentRows(data) {
         <td class="money">${formatKRW(payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
+      </tr>`
+  );
+}
+
+function paymentReviewRows(data) {
+  return data.payments.map(
+    (payment) => `
+      <tr>
+        <td>${payment.store}</td>
+        <td>${payment.vendor}</td>
+        <td class="money">${formatKRW(payment.amount)}</td>
+        <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
+        <td>${payment.requested_at}</td>
+        <td>
+          ${
+            payment.status === "신청"
+              ? `<div class="row-actions">
+                  <button data-payment-id="${payment.id}" data-payment-status="승인">승인</button>
+                  <button data-payment-id="${payment.id}" data-payment-status="반려">반려</button>
+                </div>`
+              : `<span class="muted">처리 완료</span>`
+          }
+        </td>
       </tr>`
   );
 }
@@ -464,7 +512,7 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
         </div>
-        ${table(["매장", "업체", "금액", "상태", "신청일"], paymentRows(data))}
+        ${table(["매장", "업체", "금액", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
   `;
@@ -579,6 +627,12 @@ function render(notice = "") {
 
   const storeFormElement = document.querySelector("#store-form");
   if (storeFormElement) storeFormElement.addEventListener("submit", submitStore);
+
+  document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
+    button.addEventListener("click", () => {
+      updatePaymentStatus(Number(button.dataset.paymentId), button.dataset.paymentStatus);
+    });
+  });
 }
 
 loadData().then((data) => {

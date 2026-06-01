@@ -385,6 +385,40 @@ button:disabled {
   font-weight: 700;
 }
 
+.row-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.row-actions button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #d9dfe8;
+  border-radius: 8px;
+  color: #253247;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.row-actions button:first-child {
+  border-color: #237c63;
+  color: #116447;
+  background: #e6f5ee;
+}
+
+.row-actions button:last-child {
+  border-color: #f1c1bc;
+  color: #b42318;
+  background: #fee8e6;
+}
+
+.muted {
+  color: #7a8597;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 @media (max-width: 1100px) {
   #app {
     grid-template-columns: 1fr;
