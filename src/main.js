@@ -1,7 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const SUPABASE_URL =
+  import.meta.env.VITE_SUPABASE_URL || "https://yqemtsbdnypgmkuyncxh.supabase.co";
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_NLGUYb8d4jA2IRyaGza4lw_30c-gIYj";
 
 const supabase =
   SUPABASE_URL && SUPABASE_ANON_KEY
@@ -41,12 +43,18 @@ const nav = [
   "관리자 설정"
 ];
 
+let currentData = fallback;
+
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
     style: "currency",
     currency: "KRW",
     maximumFractionDigits: 0
-  }).format(value);
+  }).format(value || 0);
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
 
 const statusClass = (status) => {
   const map = {
@@ -66,7 +74,7 @@ async function loadData() {
   if (!supabase) return fallback;
 
   const [payments, stores, vendors] = await Promise.all([
-    supabase.from("payments").select("*").order("requested_at", { ascending: false }).limit(8),
+    supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(12),
     supabase.from("stores").select("*").order("id", { ascending: true }),
     supabase.from("vendors").select("*").order("id", { ascending: true })
   ]);
@@ -76,6 +84,65 @@ async function loadData() {
     stores: stores.error ? fallback.stores : stores.data,
     vendors: vendors.error ? fallback.vendors : vendors.data
   };
+}
+
+function findDuplicateRisk(data, vendor, amount) {
+  return data.payments.find((payment) => {
+    const sameVendor = payment.vendor.trim() === vendor.trim();
+    const diffRate = Math.abs(payment.amount - amount) / Math.max(amount, 1);
+    return sameVendor && diffRate <= 0.1;
+  });
+}
+
+async function submitPayment(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  const message = form.querySelector("[data-form-message]");
+  const formData = new FormData(form);
+  const store = String(formData.get("store") || "").trim();
+  const vendor = String(formData.get("vendor") || "").trim();
+  const amount = parseAmount(formData.get("amount"));
+  const duplicate = findDuplicateRisk(currentData, vendor, amount);
+
+  if (!store || !vendor || !amount) {
+    message.textContent = "매장명, 업체명, 신청 금액을 모두 입력해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = "저장 중";
+  message.textContent = duplicate
+    ? `중복 의심: ${duplicate.store} / ${formatKRW(duplicate.amount)} 건과 비슷합니다.`
+    : "신청 건을 저장하고 있습니다.";
+  message.className = duplicate ? "form-message warning" : "form-message";
+
+  const newPayment = {
+    store,
+    vendor,
+    amount,
+    status: "신청",
+    requested_at: today()
+  };
+
+  if (!supabase) {
+    fallback.payments = [{ id: Date.now(), ...newPayment }, ...fallback.payments];
+  } else {
+    const { error } = await supabase.from("payments").insert(newPayment);
+    if (error) {
+      submitButton.disabled = false;
+      submitButton.textContent = "검토 요청 생성";
+      message.textContent = `저장 실패: ${error.message}`;
+      message.className = "form-message error";
+      return;
+    }
+  }
+
+  form.reset();
+  currentData = await loadData();
+  render(currentData, duplicate ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
 }
 
 function kpiData(data) {
@@ -113,7 +180,7 @@ function table(headers, rows) {
   `;
 }
 
-function render(data) {
+function render(data, notice = "") {
   const app = document.querySelector("#app");
   app.innerHTML = `
     <aside class="sidebar">
@@ -137,6 +204,8 @@ function render(data) {
           <button class="primary">결제 신청</button>
         </div>
       </header>
+
+      ${notice ? `<div class="toast">${notice}</div>` : ""}
 
       <section class="kpis">
         ${kpiData(data)
@@ -219,14 +288,22 @@ function render(data) {
             <h2>결제 신청 입력</h2>
           </div>
           <div class="notice">같은 업체와 비슷한 금액의 최근 신청 건이 있으면 중복 의심으로 표시됩니다.</div>
-          <label>매장명<input placeholder="예: 성수 플래그십" /></label>
-          <label>협력업체<input placeholder="업체명을 입력" /></label>
-          <label>신청 금액<input placeholder="₩0" /></label>
-          <button class="primary wide">검토 요청 생성</button>
+          <form id="payment-form">
+            <label>매장명<input name="store" placeholder="예: 성수 플래그십" autocomplete="off" /></label>
+            <label>협력업체<input name="vendor" placeholder="업체명을 입력" autocomplete="off" /></label>
+            <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
+            <p class="form-message" data-form-message></p>
+            <button class="primary wide" type="submit">검토 요청 생성</button>
+          </form>
         </article>
       </section>
     </main>
   `;
+
+  document.querySelector("#payment-form").addEventListener("submit", submitPayment);
 }
 
-loadData().then(render);
+loadData().then((data) => {
+  currentData = data;
+  render(data);
+});

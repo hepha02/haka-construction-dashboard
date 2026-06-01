@@ -33,6 +33,17 @@ create policy "public read payments" on public.payments for select using (true);
 create policy "public read stores" on public.stores for select using (true);
 create policy "public read vendors" on public.vendors for select using (true);
 
+drop policy if exists "public insert payments" on public.payments;
+create policy "public insert payments"
+on public.payments
+for insert
+with check (
+  status = '신청'
+  and amount > 0
+  and length(trim(store)) > 0
+  and length(trim(vendor)) > 0
+);
+
 insert into public.payments (store, vendor, amount, status, requested_at) values
   ('성수 플래그십', '한빛전기', 18400000, '승인', '2026-05-28'),
   ('부산 센텀', '도원인테리어', 32700000, '신청', '2026-05-27'),
