@@ -43,7 +43,17 @@ const nav = [
   "관리자 설정"
 ];
 
+const viewDescriptions = {
+  "엑셀 업로드": ["결제 신청 내역 엑셀 업로드", "필수 컬럼 검증", "중복/오류 행 표시"],
+  "진열장 원가 배분": ["매장별 진열장 비용 배분", "공용 비용 자동 분배", "평당 원가 반영"],
+  "견적서 생성": ["매장/업체 기준 견적서 생성", "공사항목별 금액 자동 합산", "PDF/문서 다운로드"],
+  "계약서 생성": ["업체 정보 기반 계약서 생성", "계좌/사업자 정보 자동 반영", "계약 상태 관리"],
+  "은행 이체 파일 생성": ["승인된 결제 건만 추출", "은행 업로드용 파일 생성", "이체 전 검증"],
+  "관리자 설정": ["사용자 권한", "승인 단계", "상태/분류 코드 관리"]
+};
+
 let currentData = fallback;
+let activeView = "대시보드";
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -142,7 +152,7 @@ async function submitPayment(event) {
 
   form.reset();
   currentData = await loadData();
-  render(currentData, duplicate ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
+  render(duplicate ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
 }
 
 function kpiData(data) {
@@ -180,7 +190,182 @@ function table(headers, rows) {
   `;
 }
 
-function render(data, notice = "") {
+function paymentRows(data) {
+  return data.payments.map(
+    (payment) => `
+      <tr>
+        <td>${payment.store}</td>
+        <td>${payment.vendor}</td>
+        <td class="money">${formatKRW(payment.amount)}</td>
+        <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
+        <td>${payment.requested_at}</td>
+      </tr>`
+  );
+}
+
+function storeRows(data) {
+  return data.stores.map(
+    (store) => `
+      <tr>
+        <td>${store.name}</td>
+        <td>${store.area}평</td>
+        <td class="money">${formatKRW(store.budget)}</td>
+        <td class="money">${formatKRW(store.spent)}</td>
+        <td><span class="badge ${statusClass(store.status)}">${store.status}</span></td>
+      </tr>`
+  );
+}
+
+function vendorRows(data) {
+  return data.vendors.map(
+    (vendor) => `
+      <tr>
+        <td>${vendor.name}</td>
+        <td>${vendor.category}</td>
+        <td>${vendor.bank}</td>
+        <td class="money">${formatKRW(vendor.total)}</td>
+        <td><span class="badge ${statusClass(vendor.risk)}">${vendor.risk}</span></td>
+      </tr>`
+  );
+}
+
+function paymentForm() {
+  return `
+    <article class="panel form-panel">
+      <div class="panel-head">
+        <h2>결제 신청 입력</h2>
+      </div>
+      <div class="notice">같은 업체와 비슷한 금액의 최근 신청 건이 있으면 중복 의심으로 표시됩니다.</div>
+      <form id="payment-form">
+        <label>매장명<input name="store" placeholder="예: 성수 플래그십" autocomplete="off" /></label>
+        <label>협력업체<input name="vendor" placeholder="업체명을 입력" autocomplete="off" /></label>
+        <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
+        <p class="form-message" data-form-message></p>
+        <button class="primary wide" type="submit">검토 요청 생성</button>
+      </form>
+    </article>
+  `;
+}
+
+function dashboardView(data) {
+  return `
+    <section class="kpis">
+      ${kpiData(data)
+        .map(
+          ([label, value, helper]) => `
+            <article class="kpi">
+              <span>${label}</span>
+              <strong>${value}</strong>
+              <small>${helper}</small>
+            </article>`
+        )
+        .join("")}
+    </section>
+
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>최근 결제 신청</h2>
+          <button data-view-link="결제 신청">전체 보기</button>
+        </div>
+        ${table(["매장", "업체", "금액", "상태", "신청일"], paymentRows(data))}
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <h2>매장 공사 현황</h2>
+          <button data-view-link="매장별 공사 관리">관리</button>
+        </div>
+        ${table(["매장", "면적", "예산", "사용액", "상태"], storeRows(data))}
+      </article>
+    </section>
+
+    <section class="grid lower">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>주요 협력업체</h2>
+          <button data-view-link="업체/계좌 관리">업체 추가</button>
+        </div>
+        ${table(["업체", "분류", "은행", "누적 지급", "상태"], vendorRows(data))}
+      </article>
+      ${paymentForm()}
+    </section>
+  `;
+}
+
+function paymentView(data) {
+  return `
+    <section class="grid two">
+      ${paymentForm()}
+      <article class="panel">
+        <div class="panel-head">
+          <h2>결제 신청 검토</h2>
+          <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
+        </div>
+        ${table(["매장", "업체", "금액", "상태", "신청일"], paymentRows(data))}
+      </article>
+    </section>
+  `;
+}
+
+function vendorsView(data) {
+  return `
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>업체/계좌 관리</h2>
+          <button>업체 추가 준비중</button>
+        </div>
+        ${table(["업체", "분류", "은행", "누적 지급", "상태"], vendorRows(data))}
+      </article>
+      <article class="panel empty-panel">
+        <h2>이 화면에서 체크할 것</h2>
+        <p>업체명, 공종 분류, 은행/계좌 정보, 증빙 상태, 누적 지급액을 관리합니다.</p>
+      </article>
+    </section>
+  `;
+}
+
+function storesView(data) {
+  return `
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>매장별 공사 관리</h2>
+          <button>매장 추가 준비중</button>
+        </div>
+        ${table(["매장", "면적", "예산", "사용액", "상태"], storeRows(data))}
+      </article>
+      <article class="panel empty-panel">
+        <h2>이 화면에서 체크할 것</h2>
+        <p>매장별 면적, 예산, 실제 사용액, 공사 진행 상태를 확인하고 수정하게 됩니다.</p>
+      </article>
+    </section>
+  `;
+}
+
+function placeholderView(view) {
+  const checks = viewDescriptions[view] || ["기능 범위 정의", "입력 항목 확정", "데이터 연결"];
+  return `
+    <section class="panel empty-panel">
+      <h2>${view}</h2>
+      <p>이 메뉴는 다음 단계에서 구현할 기능입니다. 지금은 확인해야 할 항목을 먼저 고정해둔 상태입니다.</p>
+      <div class="check-list">
+        ${checks.map((item) => `<span>${item}</span>`).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function activeContent(data) {
+  if (activeView === "대시보드") return dashboardView(data);
+  if (activeView === "결제 신청") return paymentView(data);
+  if (activeView === "업체/계좌 관리") return vendorsView(data);
+  if (activeView === "매장별 공사 관리") return storesView(data);
+  return placeholderView(activeView);
+}
+
+function render(notice = "") {
   const app = document.querySelector("#app");
   app.innerHTML = `
     <aside class="sidebar">
@@ -191,119 +376,50 @@ function render(data, notice = "") {
           <small>공사비 관리 시스템</small>
         </div>
       </div>
-      <nav>${nav.map((item, index) => `<button class="${index === 0 ? "active" : ""}">${item}</button>`).join("")}</nav>
+      <nav>
+        ${nav
+          .map(
+            (item) => `<button data-view="${item}" class="${item === activeView ? "active" : ""}">${item}</button>`
+          )
+          .join("")}
+      </nav>
     </aside>
     <main class="shell">
       <header class="topbar">
         <div>
           <p>Admin Console</p>
-          <h1>공사비 운영 대시보드</h1>
+          <h1>${activeView}</h1>
         </div>
         <div class="actions">
-          <button>엑셀 업로드</button>
-          <button class="primary">결제 신청</button>
+          <button data-view-link="엑셀 업로드">엑셀 업로드</button>
+          <button class="primary" data-view-link="결제 신청">결제 신청</button>
         </div>
       </header>
 
       ${notice ? `<div class="toast">${notice}</div>` : ""}
-
-      <section class="kpis">
-        ${kpiData(data)
-          .map(
-            ([label, value, helper]) => `
-              <article class="kpi">
-                <span>${label}</span>
-                <strong>${value}</strong>
-                <small>${helper}</small>
-              </article>`
-          )
-          .join("")}
-      </section>
-
-      <section class="grid two">
-        <article class="panel">
-          <div class="panel-head">
-            <h2>최근 결제 신청</h2>
-            <button>전체 보기</button>
-          </div>
-          ${table(
-            ["매장", "업체", "금액", "상태", "신청일"],
-            data.payments.map(
-              (payment) => `
-                <tr>
-                  <td>${payment.store}</td>
-                  <td>${payment.vendor}</td>
-                  <td class="money">${formatKRW(payment.amount)}</td>
-                  <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
-                  <td>${payment.requested_at}</td>
-                </tr>`
-            )
-          )}
-        </article>
-
-        <article class="panel">
-          <div class="panel-head">
-            <h2>매장 공사 현황</h2>
-            <button>관리</button>
-          </div>
-          ${table(
-            ["매장", "면적", "예산", "사용액", "상태"],
-            data.stores.map(
-              (store) => `
-                <tr>
-                  <td>${store.name}</td>
-                  <td>${store.area}평</td>
-                  <td class="money">${formatKRW(store.budget)}</td>
-                  <td class="money">${formatKRW(store.spent)}</td>
-                  <td><span class="badge ${statusClass(store.status)}">${store.status}</span></td>
-                </tr>`
-            )
-          )}
-        </article>
-      </section>
-
-      <section class="grid lower">
-        <article class="panel">
-          <div class="panel-head">
-            <h2>주요 협력업체</h2>
-            <button>업체 추가</button>
-          </div>
-          ${table(
-            ["업체", "분류", "은행", "누적 지급", "상태"],
-            data.vendors.map(
-              (vendor) => `
-                <tr>
-                  <td>${vendor.name}</td>
-                  <td>${vendor.category}</td>
-                  <td>${vendor.bank}</td>
-                  <td class="money">${formatKRW(vendor.total)}</td>
-                  <td><span class="badge ${statusClass(vendor.risk)}">${vendor.risk}</span></td>
-                </tr>`
-            )
-          )}
-        </article>
-
-        <article class="panel form-panel">
-          <div class="panel-head">
-            <h2>결제 신청 입력</h2>
-          </div>
-          <div class="notice">같은 업체와 비슷한 금액의 최근 신청 건이 있으면 중복 의심으로 표시됩니다.</div>
-          <form id="payment-form">
-            <label>매장명<input name="store" placeholder="예: 성수 플래그십" autocomplete="off" /></label>
-            <label>협력업체<input name="vendor" placeholder="업체명을 입력" autocomplete="off" /></label>
-            <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
-            <p class="form-message" data-form-message></p>
-            <button class="primary wide" type="submit">검토 요청 생성</button>
-          </form>
-        </article>
-      </section>
+      ${activeContent(currentData)}
     </main>
   `;
 
-  document.querySelector("#payment-form").addEventListener("submit", submitPayment);
+  document.querySelectorAll("[data-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeView = button.dataset.view;
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-view-link]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeView = button.dataset.viewLink;
+      render();
+    });
+  });
+
+  const form = document.querySelector("#payment-form");
+  if (form) form.addEventListener("submit", submitPayment);
 }
 
 loadData().then((data) => {
   currentData = data;
-  render(data);
+  render();
 });
