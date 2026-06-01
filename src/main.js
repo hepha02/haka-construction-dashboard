@@ -44,6 +44,18 @@ const nav = [
   "관리자 설정"
 ];
 
+const roleMenus = {
+  "전체 관리자": nav,
+  "인테리어 공사실장": ["결제 신청", "진열장 원가 배분"]
+};
+
+const roleLabels = {
+  admin: "전체 관리자",
+  interior_manager: "인테리어 공사실장",
+  "전체 관리자": "전체 관리자",
+  "인테리어 공사실장": "인테리어 공사실장"
+};
+
 const viewDescriptions = {
   "엑셀 업로드": ["결제 신청 내역 엑셀 업로드", "필수 컬럼 검증", "중복/오류 행 표시"],
   "진열장 원가 배분": ["매장별 진열장 비용 배분", "공용 비용 자동 분배", "평당 원가 반영"],
@@ -55,6 +67,8 @@ const viewDescriptions = {
 
 let currentData = fallback;
 let activeView = "대시보드";
+let activeRole = "인테리어 공사실장";
+let currentUser = null;
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -94,6 +108,41 @@ async function loadData() {
     stores: stores.error ? fallback.stores : stores.data,
     vendors: vendors.error ? fallback.vendors : vendors.data
   };
+}
+
+async function loadUserRole(user) {
+  if (!supabase || !user?.email) return "인테리어 공사실장";
+
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role")
+    .ilike("email", user.email)
+    .maybeSingle();
+
+  if (error || !data?.role) return "인테리어 공사실장";
+  return roleLabels[data.role] || "인테리어 공사실장";
+}
+
+async function startApp() {
+  if (!supabase) {
+    currentData = await loadData();
+    activeRole = "전체 관리자";
+    render();
+    return;
+  }
+
+  const { data } = await supabase.auth.getSession();
+  currentUser = data.session?.user || null;
+
+  if (!currentUser) {
+    renderLogin();
+    return;
+  }
+
+  activeRole = await loadUserRole(currentUser);
+  activeView = visibleNav()[0];
+  currentData = await loadData();
+  render();
 }
 
 function findDuplicateRisk(data, vendor, amount) {
@@ -572,8 +621,105 @@ function activeContent(data) {
   return placeholderView(activeView);
 }
 
+function visibleNav() {
+  return roleMenus[activeRole] || nav;
+}
+
+function roleControl() {
+  return `
+    <div class="session-box">
+      <span>${currentUser?.email || ""}</span>
+      <strong>${activeRole}</strong>
+      <button data-sign-out>로그아웃</button>
+    </div>
+  `;
+}
+
+function renderLogin(message = "") {
+  const app = document.querySelector("#app");
+  app.innerHTML = `
+    <main class="auth-page">
+      <section class="auth-panel">
+        <div class="brand auth-brand">
+          <span class="brand-mark">H</span>
+          <div>
+            <strong>HAKA Construction</strong>
+            <small>공사비 관리 시스템</small>
+          </div>
+        </div>
+        <h1>로그인</h1>
+        <p>권한이 있는 사용자만 공사비 데이터를 볼 수 있습니다.</p>
+        ${message ? `<div class="form-message ${message.includes("실패") ? "error" : "warning"}">${message}</div>` : ""}
+        <form id="auth-form">
+          <label>이메일<input name="email" type="email" autocomplete="email" /></label>
+          <label>비밀번호<input name="password" type="password" autocomplete="current-password" /></label>
+          <button class="primary wide" type="submit" data-auth-action="login">로그인</button>
+          <button class="wide" type="button" data-auth-action="signup">계정 만들기</button>
+        </form>
+      </section>
+    </main>
+  `;
+
+  document.querySelector("#auth-form").addEventListener("submit", handleLogin);
+  document.querySelector("[data-auth-action='signup']").addEventListener("click", handleSignup);
+}
+
+async function handleLogin(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+
+  if (!email || !password) {
+    renderLogin("이메일과 비밀번호를 입력해 주세요.");
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    renderLogin(`로그인 실패: ${error.message}`);
+    return;
+  }
+
+  currentUser = data.user;
+  activeRole = await loadUserRole(currentUser);
+  activeView = visibleNav()[0];
+  currentData = await loadData();
+  render();
+}
+
+async function handleSignup() {
+  const form = document.querySelector("#auth-form");
+  const formData = new FormData(form);
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+
+  if (!email || !password) {
+    renderLogin("계정을 만들 이메일과 비밀번호를 입력해 주세요.");
+    return;
+  }
+
+  const { error } = await supabase.auth.signUp({ email, password });
+  if (error) {
+    renderLogin(`회원가입 실패: ${error.message}`);
+    return;
+  }
+
+  renderLogin("계정이 생성됐습니다. 이메일 확인이 필요한 경우 메일 인증 후 로그인해 주세요.");
+}
+
+async function signOut() {
+  await supabase.auth.signOut();
+  currentUser = null;
+  activeRole = "인테리어 공사실장";
+  renderLogin("로그아웃되었습니다.");
+}
+
 function render(notice = "") {
   const app = document.querySelector("#app");
+  if (!visibleNav().includes(activeView)) {
+    activeView = visibleNav()[0];
+  }
   app.innerHTML = `
     <aside class="sidebar">
       <div class="brand">
@@ -584,7 +730,7 @@ function render(notice = "") {
         </div>
       </div>
       <nav>
-        ${nav
+        ${visibleNav()
           .map(
             (item) => `<button data-view="${item}" class="${item === activeView ? "active" : ""}">${item}</button>`
           )
@@ -594,12 +740,21 @@ function render(notice = "") {
     <main class="shell">
       <header class="topbar">
         <div>
-          <p>Admin Console</p>
+          <p>${activeRole}</p>
           <h1>${activeView}</h1>
         </div>
         <div class="actions">
-          <button data-view-link="엑셀 업로드">엑셀 업로드</button>
-          <button class="primary" data-view-link="결제 신청">결제 신청</button>
+          ${roleControl()}
+          ${
+            visibleNav().includes("엑셀 업로드")
+              ? `<button data-view-link="엑셀 업로드">엑셀 업로드</button>`
+              : ""
+          }
+          ${
+            visibleNav().includes("결제 신청")
+              ? `<button class="primary" data-view-link="결제 신청">결제 신청</button>`
+              : ""
+          }
         </div>
       </header>
 
@@ -615,9 +770,23 @@ function render(notice = "") {
     });
   });
 
+  document.querySelectorAll("[data-role]").forEach((button) => {
+    button.addEventListener("click", () => {
+      activeRole = button.dataset.role;
+      if (!visibleNav().includes(activeView)) {
+        activeView = visibleNav()[0];
+      }
+      render();
+    });
+  });
+
+  document.querySelector("[data-sign-out]")?.addEventListener("click", signOut);
+
   document.querySelectorAll("[data-view-link]").forEach((button) => {
     button.addEventListener("click", () => {
-      activeView = button.dataset.viewLink;
+      if (visibleNav().includes(button.dataset.viewLink)) {
+        activeView = button.dataset.viewLink;
+      }
       render();
     });
   });
@@ -638,7 +807,4 @@ function render(notice = "") {
   });
 }
 
-loadData().then((data) => {
-  currentData = data;
-  render();
-});
+startApp();
