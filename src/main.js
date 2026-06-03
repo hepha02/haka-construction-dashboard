@@ -28,12 +28,14 @@ const fallback = {
     { id: 1, name: "도원인테리어", category: "시공", bank: "신한은행", account_number: "110-000-000001", account_holder: "도원인테리어", risk: "정상", total: 124500000 },
     { id: 2, name: "한빛전기", category: "전기", bank: "국민은행", account_number: "004-000-000002", account_holder: "한빛전기", risk: "정상", total: 73800000 },
     { id: 3, name: "서진설비", category: "설비", bank: "하나은행", account_number: "352-000-000003", account_holder: "서진설비", risk: "증빙확인", total: 41200000 }
-  ]
+  ],
+  constructionStarts: []
 };
 
 const nav = [
   "대시보드",
   "엑셀 업로드",
+  "공사 시작 접수",
   "결제 신청",
   "업체/계좌 관리",
   "매장별 공사 관리",
@@ -46,7 +48,7 @@ const nav = [
 
 const roleMenus = {
   "전체 관리자": nav,
-  "인테리어 공사실장": ["결제 신청", "진열장 원가 배분"]
+  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "진열장 원가 배분"]
 };
 
 const roleLabels = {
@@ -103,16 +105,18 @@ const statusClass = (status) => {
 async function loadData() {
   if (!supabase) return fallback;
 
-  const [payments, stores, vendors] = await Promise.all([
+  const [payments, stores, vendors, constructionStarts] = await Promise.all([
     supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(12),
     supabase.from("stores").select("*").order("id", { ascending: true }),
-    supabase.from("vendors").select("*").order("id", { ascending: true })
+    supabase.from("vendors").select("*").order("id", { ascending: true }),
+    supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30)
   ]);
 
   return {
     payments: payments.error ? fallback.payments : payments.data,
     stores: stores.error ? fallback.stores : stores.data,
-    vendors: vendors.error ? fallback.vendors : vendors.data
+    vendors: vendors.error ? fallback.vendors : vendors.data,
+    constructionStarts: constructionStarts.error ? fallback.constructionStarts : constructionStarts.data
   };
 }
 
@@ -302,6 +306,54 @@ async function submitStore(event) {
   render("매장 공사 정보가 저장됐습니다.");
 }
 
+async function submitConstructionStart(event) {
+  event.preventDefault();
+
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  const message = form.querySelector("[data-construction-start-message]");
+  const formData = new FormData(form);
+  const request = {
+    store_name: String(formData.get("store_name") || "").trim(),
+    area: Number(formData.get("area")),
+    drawing_note: String(formData.get("drawing_note") || "").trim(),
+    fixture_count: Number(formData.get("fixture_count") || 0),
+    table_count: Number(formData.get("table_count") || 0),
+    sign_count: Number(formData.get("sign_count") || 0),
+    base_photo_note: String(formData.get("base_photo_note") || "").trim(),
+    special_notes: String(formData.get("special_notes") || "").trim()
+  };
+
+  if (!request.store_name || !request.area) {
+    message.textContent = "매장명과 평수는 꼭 입력해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.textContent = "저장 중";
+  message.textContent = "공사 시작 정보를 저장하고 있습니다.";
+  message.className = "form-message";
+
+  if (!supabase) {
+    fallback.constructionStarts = [{ id: Date.now(), created_at: new Date().toISOString(), ...request }, ...fallback.constructionStarts];
+  } else {
+    const { error } = await supabase.from("construction_starts").insert(request);
+    if (error) {
+      submitButton.disabled = false;
+      submitButton.textContent = "공사 시작 정보 저장";
+      message.textContent = `저장 실패: ${error.message}`;
+      message.className = "form-message error";
+      return;
+    }
+  }
+
+  form.reset();
+  currentData = await loadData();
+  activeView = "공사 시작 접수";
+  render("공사 시작 정보가 저장됐습니다. 결제 신청 매장 검색에도 반영됐습니다.");
+}
+
 async function updatePaymentStatus(paymentId, status) {
   if (!paymentId || !["승인", "반려"].includes(status)) return;
 
@@ -414,6 +466,22 @@ function storeRows(data) {
   );
 }
 
+function constructionStartRows(data) {
+  return data.constructionStarts.map(
+    (item) => `
+      <tr>
+        <td>${item.store_name}</td>
+        <td>${item.area}평</td>
+        <td>${item.fixture_count || 0}</td>
+        <td>${item.table_count || 0}</td>
+        <td>${item.sign_count || 0}</td>
+        <td>${item.drawing_note || "-"}</td>
+        <td>${item.base_photo_note || "-"}</td>
+        <td>${item.special_notes || "-"}</td>
+      </tr>`
+  );
+}
+
 function vendorRows(data) {
   return data.vendors.map(
     (vendor) => `
@@ -439,7 +507,21 @@ function vendorSuggestions(data) {
 }
 
 function storeSuggestions(data) {
-  return data.stores
+  const constructionStores = data.constructionStarts.map((item) => ({
+    name: item.store_name,
+    area: item.area,
+    status: "공사 시작 접수"
+  }));
+  const stores = [...constructionStores, ...data.stores];
+  const seen = new Set();
+
+  return stores
+    .filter((store) => {
+      const key = String(store.name || "").trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map(
       (store) =>
         `<option value="${escapeAttr(store.name)}">${escapeAttr(store.name)} / ${escapeAttr(store.area)}평 / ${escapeAttr(store.status)}</option>`
@@ -523,6 +605,29 @@ function storeForm() {
   `;
 }
 
+function constructionStartForm() {
+  return `
+    <article class="panel form-panel">
+      <div class="panel-head">
+        <h2>공사 시작 정보 입력</h2>
+      </div>
+      <div class="notice">직영매장 공사 시작 전에 필요한 도면, 수량, 사진, 특이사항을 먼저 접수합니다.</div>
+      <form id="construction-start-form">
+        <label>매장명<input name="store_name" placeholder="예: 강남압구정 직영점" autocomplete="off" /></label>
+        <label>평수<input name="area" inputmode="numeric" placeholder="예: 45" autocomplete="off" /></label>
+        <label>도면<input name="drawing_note" placeholder="도면 파일명 또는 링크" autocomplete="off" /></label>
+        <label>필요한 진열장 수<input name="fixture_count" inputmode="numeric" placeholder="예: 8" autocomplete="off" /></label>
+        <label>필요한 테이블 수<input name="table_count" inputmode="numeric" placeholder="예: 3" autocomplete="off" /></label>
+        <label>광고판 갯수<input name="sign_count" inputmode="numeric" placeholder="예: 2" autocomplete="off" /></label>
+        <label>매장 기초 사진<input name="base_photo_note" placeholder="사진 파일명 또는 링크" autocomplete="off" /></label>
+        <label>특이사항<textarea name="special_notes" placeholder="현장 특이사항, 요청사항, 주의할 점"></textarea></label>
+        <p class="form-message" data-construction-start-message></p>
+        <button class="primary wide" type="submit">공사 시작 정보 저장</button>
+      </form>
+    </article>
+  `;
+}
+
 function dashboardView(data) {
   return `
     <section class="kpis">
@@ -584,6 +689,21 @@ function paymentView(data) {
   `;
 }
 
+function constructionStartView(data) {
+  return `
+    <section class="grid two">
+      ${constructionStartForm()}
+      <article class="panel">
+        <div class="panel-head">
+          <h2>공사 시작 접수 목록</h2>
+          <button>${data.constructionStarts.length}건 접수</button>
+        </div>
+        ${table(["매장", "평수", "진열장", "테이블", "광고판", "도면", "기초 사진", "특이사항"], constructionStartRows(data))}
+      </article>
+    </section>
+  `;
+}
+
 function vendorsView(data) {
   return `
     <section class="grid two">
@@ -629,6 +749,7 @@ function placeholderView(view) {
 
 function activeContent(data) {
   if (activeView === "대시보드") return dashboardView(data);
+  if (activeView === "공사 시작 접수") return constructionStartView(data);
   if (activeView === "결제 신청") return paymentView(data);
   if (activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
@@ -849,6 +970,9 @@ function render(notice = "") {
 
   const storeFormElement = document.querySelector("#store-form");
   if (storeFormElement) storeFormElement.addEventListener("submit", submitStore);
+
+  const constructionStartFormElement = document.querySelector("#construction-start-form");
+  if (constructionStartFormElement) constructionStartFormElement.addEventListener("submit", submitConstructionStart);
 
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
     button.addEventListener("click", () => {
