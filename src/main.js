@@ -429,9 +429,12 @@ function vendorRows(data) {
   );
 }
 
-function vendorOptions(data) {
+function vendorSuggestions(data) {
   return data.vendors
-    .map((vendor) => `<option value="${vendor.name}">${vendor.name} / ${vendor.bank} ${vendor.account_number || ""}</option>`)
+    .map(
+      (vendor) =>
+        `<option value="${escapeAttr(vendor.name)}">${escapeAttr(vendor.name)} / ${escapeAttr(vendor.bank)} ${escapeAttr(vendor.account_number || "")}</option>`
+    )
     .join("");
 }
 
@@ -460,10 +463,11 @@ function paymentForm() {
           </datalist>
         </label>
         <label>협력업체
-          <select name="vendor">
-            <option value="">업체를 선택하세요</option>
-            ${vendorOptions(currentData)}
-          </select>
+          <input name="vendor" list="vendor-suggestions" placeholder="직접입력 또는 업체명 검색" autocomplete="off" />
+          <datalist id="vendor-suggestions">
+            <option value="직접입력">직접입력</option>
+            ${vendorSuggestions(currentData)}
+          </datalist>
         </label>
         <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
