@@ -79,6 +79,12 @@ const formatKRW = (value) =>
 
 const today = () => new Date().toISOString().slice(0, 10);
 const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
+const escapeAttr = (value) =>
+  String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
 const statusClass = (status) => {
   const map = {
@@ -429,9 +435,12 @@ function vendorOptions(data) {
     .join("");
 }
 
-function storeOptions(data) {
+function storeSuggestions(data) {
   return data.stores
-    .map((store) => `<option value="${store.name}">${store.name} / ${store.area}평 / ${store.status}</option>`)
+    .map(
+      (store) =>
+        `<option value="${escapeAttr(store.name)}">${escapeAttr(store.name)} / ${escapeAttr(store.area)}평 / ${escapeAttr(store.status)}</option>`
+    )
     .join("");
 }
 
@@ -444,10 +453,11 @@ function paymentForm() {
       <div class="notice">등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다.</div>
       <form id="payment-form">
         <label>매장
-          <select name="store">
-            <option value="">매장을 선택하세요</option>
-            ${storeOptions(currentData)}
-          </select>
+          <input name="store" list="store-suggestions" placeholder="직접입력 또는 매장명 검색" autocomplete="off" />
+          <datalist id="store-suggestions">
+            <option value="직접입력">직접입력</option>
+            ${storeSuggestions(currentData)}
+          </datalist>
         </label>
         <label>협력업체
           <select name="vendor">
