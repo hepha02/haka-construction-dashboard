@@ -30,6 +30,7 @@ const fallback = {
     { id: 2, name: "한빛전기", category: "전기", bank: "국민은행", account_number: "004-000-000002", account_holder: "한빛전기", risk: "정상", total: 73800000 },
     { id: 3, name: "서진설비", category: "설비", bank: "하나은행", account_number: "352-000-000003", account_holder: "서진설비", risk: "증빙확인", total: 41200000 }
   ],
+  userRoles: [],
   constructionStarts: []
 };
 
@@ -107,18 +108,20 @@ const statusClass = (status) => {
 async function loadData() {
   if (!supabase) return fallback;
 
-  const [payments, stores, vendors, constructionStarts] = await Promise.all([
+  const [payments, stores, vendors, constructionStarts, userRoles] = await Promise.all([
     supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(12),
     supabase.from("stores").select("*").order("id", { ascending: true }),
     supabase.from("vendors").select("*").order("id", { ascending: true }),
-    supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30)
+    supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30),
+    supabase.from("user_roles").select("email, role, created_at").order("email", { ascending: true })
   ]);
 
   return {
     payments: payments.error ? fallback.payments : payments.data,
     stores: stores.error ? fallback.stores : stores.data,
     vendors: vendors.error ? fallback.vendors : vendors.data,
-    constructionStarts: constructionStarts.error ? fallback.constructionStarts : constructionStarts.data
+    constructionStarts: constructionStarts.error ? fallback.constructionStarts : constructionStarts.data,
+    userRoles: userRoles.error ? fallback.userRoles : userRoles.data
   };
 }
 
@@ -789,6 +792,49 @@ function storesView(data) {
   `;
 }
 
+function userRoleRows(data) {
+  return data.userRoles.map(
+    (user) => `
+      <tr>
+        <td>${user.email}</td>
+        <td><span class="badge ${user.role === "admin" ? "green" : "blue"}">${roleLabels[user.role] || user.role}</span></td>
+        <td>${user.created_at ? String(user.created_at).slice(0, 10) : "-"}</td>
+      </tr>`
+  );
+}
+
+function roleMenuRows() {
+  return Object.entries(roleMenus).map(
+    ([role, menus]) => `
+      <tr>
+        <td><strong>${role}</strong></td>
+        <td>${menus.map((menu) => `<span class="menu-chip">${menu}</span>`).join("")}</td>
+        <td>${menus.length}개</td>
+      </tr>`
+  );
+}
+
+function adminSettingsView(data) {
+  return `
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>사용자 권한</h2>
+          <button>${data.userRoles.length}명 등록</button>
+        </div>
+        ${table(["이메일", "권한", "등록일"], userRoleRows(data))}
+      </article>
+      <article class="panel">
+        <div class="panel-head">
+          <h2>권한별 메뉴</h2>
+          <button>${Object.keys(roleMenus).length}개 권한</button>
+        </div>
+        ${table(["권한", "볼 수 있는 메뉴", "메뉴 수"], roleMenuRows())}
+      </article>
+    </section>
+  `;
+}
+
 function placeholderView(view) {
   const checks = viewDescriptions[view] || ["기능 범위 정의", "입력 항목 확정", "데이터 연결"];
   return `
@@ -808,6 +854,7 @@ function activeContent(data) {
   if (activeView === "결제 신청") return paymentView(data);
   if (activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
+  if (activeView === "관리자 설정") return adminSettingsView(data);
   return placeholderView(activeView);
 }
 

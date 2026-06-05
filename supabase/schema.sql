@@ -87,6 +87,7 @@ create policy "authenticated read vendors" on public.vendors for select using (a
 create policy "authenticated read construction cost parts" on public.construction_cost_parts for select using (auth.role() = 'authenticated');
 create policy "authenticated read construction starts" on public.construction_starts for select using (auth.role() = 'authenticated');
 create policy "users read own role" on public.user_roles for select using (lower(email) = lower(auth.jwt() ->> 'email'));
+create policy user_roles_read_authenticated on public.user_roles for select using (auth.role() = 'authenticated');
 
 create policy construction_files_read
 on storage.objects
