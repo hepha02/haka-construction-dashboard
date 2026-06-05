@@ -74,7 +74,8 @@ const fallback = {
   ],
   userRoles: [],
   paymentItems: basePaymentItems,
-  constructionStarts: []
+  constructionStarts: [],
+  storeQuotes: []
 };
 
 const furnitureCostItems = [
@@ -164,7 +165,10 @@ const statusClass = (status) => {
     완료: "green",
     미착공: "gray",
     정상: "green",
-    증빙확인: "amber"
+    증빙확인: "amber",
+    정산중: "amber",
+    "견적 확정": "blue",
+    "계약 완료": "green"
   };
   return map[status] || "gray";
 };
@@ -172,13 +176,14 @@ const statusClass = (status) => {
 async function loadData() {
   if (!supabase) return fallback;
 
-  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems] = await Promise.all([
+  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems, storeQuotes] = await Promise.all([
     supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(500),
     supabase.from("stores").select("*").order("id", { ascending: true }),
     supabase.from("vendors").select("*").order("id", { ascending: true }),
     supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30),
     supabase.from("user_roles").select("email, role, created_at").order("email", { ascending: true }),
-    supabase.from("construction_cost_parts").select("part_name").order("part_name", { ascending: true })
+    supabase.from("construction_cost_parts").select("part_name").order("part_name", { ascending: true }),
+    supabase.from("store_quotes").select("*").order("updated_at", { ascending: false })
   ]);
   const uniquePaymentItems = paymentItems.error
     ? fallback.paymentItems
@@ -190,7 +195,8 @@ async function loadData() {
     vendors: vendors.error ? fallback.vendors : vendors.data,
     constructionStarts: constructionStarts.error ? fallback.constructionStarts : constructionStarts.data,
     userRoles: userRoles.error ? fallback.userRoles : userRoles.data,
-    paymentItems: uniquePaymentItems
+    paymentItems: uniquePaymentItems,
+    storeQuotes: storeQuotes.error ? fallback.storeQuotes : storeQuotes.data
   };
 }
 
@@ -661,6 +667,52 @@ async function updatePaymentStatus(paymentId, status) {
   render(`결제 신청이 ${status} 처리됐습니다.`);
 }
 
+async function saveStoreQuote(storeName, status) {
+  const marginInput = document.querySelector(`[data-margin-rate="${CSS.escape(storeName)}"]`);
+  const marginRate = Number(marginInput?.value || 35);
+  const amounts = quoteAmounts(currentData, storeName, marginRate);
+  const existing = quoteForStore(currentData, storeName);
+  const quote = {
+    store_name: storeName,
+    quote_status: status,
+    margin_rate: marginRate,
+    direct_cost: amounts.directCost,
+    fixture_cost: amounts.fixtureCost,
+    cost_total: amounts.costTotal,
+    supply_amount: amounts.supplyAmount,
+    vat_amount: amounts.vatAmount,
+    total_amount: amounts.totalAmount,
+    quote_confirmed_at: status === "견적 확정" ? new Date().toISOString() : existing.quote_confirmed_at || new Date().toISOString(),
+    contract_completed_at: status === "계약 완료" ? new Date().toISOString() : existing.contract_completed_at || null,
+    updated_at: new Date().toISOString()
+  };
+
+  if (!storeName || !amounts.costTotal || marginRate < 0) {
+    render("견적 확정 전에 승인된 결제 또는 진열장 배분 원가와 마진율을 확인해 주세요.");
+    return;
+  }
+
+  if (!supabase) {
+    fallback.storeQuotes = [
+      { id: existing.id || Date.now(), ...quote },
+      ...fallback.storeQuotes.filter((item) => item.store_name !== storeName)
+    ];
+  } else {
+    const { error } = await supabase
+      .from("store_quotes")
+      .upsert(quote, { onConflict: "store_name" });
+
+    if (error) {
+      render(`매장 견적 저장 실패: ${error.message}`);
+      return;
+    }
+  }
+
+  currentData = await loadData();
+  activeView = "매장별 공사 관리";
+  render(status === "계약 완료" ? `${storeName} 계약 완료 상태로 저장됐습니다.` : `${storeName} 견적이 확정됐습니다.`);
+}
+
 function normalizeBankName(bank) {
   const clean = String(bank || "").replace(/\s/g, "");
   const banks = [
@@ -886,6 +938,9 @@ function paymentReviewRows(data) {
       <tr>
         <td>${payment.store}</td>
         <td>${payment.vendor}</td>
+        <td>${payment.vendor_bank || "-"}</td>
+        <td>${payment.vendor_account_number || "-"}</td>
+        <td>${payment.vendor_account_holder || "-"}</td>
         <td>${payment.payment_item || "-"}</td>
         <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
         <td>${payment.payment_type || "일시 지급"}</td>
@@ -925,6 +980,86 @@ function bankTransferRows(data) {
         <td><span class="badge ${record.ready ? "green" : "red"}">${record.ready ? "다운로드 가능" : "계좌정보 확인"}</span></td>
       </tr>`
   );
+}
+
+function quoteForStore(data, storeName) {
+  return data.storeQuotes.find((quote) => quote.store_name === storeName) || {};
+}
+
+function constructionStartForStore(data, storeName) {
+  return data.constructionStarts.find((item) => item.store_name === storeName) || {};
+}
+
+function approvedDirectCost(data, storeName) {
+  return data.payments
+    .filter((payment) => {
+      const sameStore = payment.store === storeName;
+      const approved = payment.status === "승인";
+      const item = String(payment.payment_item || "");
+      const fixtureMaterial = item.includes("진열장") || item.includes("벽장") || item.includes("카운터");
+      return sameStore && approved && !fixtureMaterial;
+    })
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+}
+
+function fixtureCostForStore(data, storeName) {
+  const start = constructionStartForStore(data, storeName);
+  const wallUnit = furnitureGroupUnit("벽장");
+  const displayUnit = furnitureGroupUnit("진열장");
+  const counterUnit = furnitureGroupUnit("카운터");
+  const wallCount = numberValue(start.wall_cabinet_count);
+  const displayCount = numberValue(start.display_fixture_count ?? start.fixture_count);
+  const counterCount = numberValue(start.counter_count);
+
+  return wallCount * wallUnit + displayCount * displayUnit + counterCount * counterUnit;
+}
+
+function allManagedStoreNames(data) {
+  const names = [
+    ...data.stores.map((store) => store.name),
+    ...data.constructionStarts.map((store) => store.store_name),
+    ...data.payments.map((payment) => payment.store)
+  ];
+  return [...new Set(names.map((name) => String(name || "").trim()).filter(Boolean))];
+}
+
+function quoteAmounts(data, storeName, marginRate) {
+  const directCost = approvedDirectCost(data, storeName);
+  const fixtureCost = fixtureCostForStore(data, storeName);
+  const costTotal = directCost + fixtureCost;
+  const supplyAmount = Math.round(costTotal * (1 + numberValue(marginRate) / 100));
+  const vatAmount = Math.round(supplyAmount * 0.1);
+  const totalAmount = supplyAmount + vatAmount;
+
+  return { directCost, fixtureCost, costTotal, supplyAmount, vatAmount, totalAmount };
+}
+
+function storeManagementRows(data) {
+  return allManagedStoreNames(data).map((storeName) => {
+    const quote = quoteForStore(data, storeName);
+    const marginRate = quote.margin_rate ?? 35;
+    const amounts = quoteAmounts(data, storeName, marginRate);
+    const status = quote.quote_status || "정산중";
+
+    return `
+      <tr>
+        <td>${storeName}</td>
+        <td><span class="badge ${statusClass(status)}">${status}</span></td>
+        <td class="money">${formatKRW(amounts.directCost)}</td>
+        <td class="money">${formatKRW(amounts.fixtureCost)}</td>
+        <td class="money">${formatKRW(amounts.costTotal)}</td>
+        <td><input class="inline-input" data-margin-rate="${escapeAttr(storeName)}" inputmode="decimal" value="${marginRate}" /></td>
+        <td class="money">${formatKRW(amounts.supplyAmount)}</td>
+        <td class="money">${formatKRW(amounts.vatAmount)}</td>
+        <td class="money">${formatKRW(amounts.totalAmount)}</td>
+        <td>
+          <div class="row-actions">
+            <button data-quote-finalize="${escapeAttr(storeName)}">견적 확정</button>
+            <button data-contract-complete="${escapeAttr(storeName)}">계약 완료</button>
+          </div>
+        </td>
+      </tr>`;
+  });
 }
 
 function storeRows(data) {
@@ -1204,7 +1339,7 @@ function dashboardView(data) {
           <h2>최근 결제 신청</h2>
           <button data-view-link="결제 신청">전체 보기</button>
         </div>
-        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일"], paymentRows(data))}
+        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일"], paymentRows(data))}
       </article>
 
       <article class="panel">
@@ -1420,14 +1555,14 @@ function vendorsView(data) {
 
 function storesView(data) {
   return `
-    <section class="grid two">
-      ${storeForm()}
+    <section class="grid">
       <article class="panel">
         <div class="panel-head">
-          <h2>매장별 공사 목록</h2>
-          <button>${data.stores.length}개 매장</button>
+          <h2>매장별 정산 및 문서 마감</h2>
+          <button>${allManagedStoreNames(data).length}개 매장</button>
         </div>
-        ${table(["지역", "매장", "진열장", "평수", "공사비 합계", "상태", "문서"], storeRows(data))}
+        <div class="notice">승인된 결제건과 진열장 원가 배분 금액을 합산한 뒤, 매장별 마진율을 적용해 최종 견적금액을 확정합니다. 확정 금액은 견적서와 계약서 작성 기준으로 사용합니다.</div>
+        ${table(["매장", "상태", "승인 원가", "진열장 배분", "원가 합계", "마진율(%)", "공급가", "부가세", "최종 견적금액", "처리"], storeManagementRows(data))}
       </article>
     </section>
   `;
@@ -1734,6 +1869,14 @@ function render(notice = "") {
 
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
     button.addEventListener("click", () => downloadBankTransferFile(currentData));
+  });
+
+  document.querySelectorAll("[data-quote-finalize]").forEach((button) => {
+    button.addEventListener("click", () => saveStoreQuote(button.dataset.quoteFinalize, "견적 확정"));
+  });
+
+  document.querySelectorAll("[data-contract-complete]").forEach((button) => {
+    button.addEventListener("click", () => saveStoreQuote(button.dataset.contractComplete, "계약 완료"));
   });
 
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {

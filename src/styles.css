@@ -197,6 +197,12 @@ nav button:hover {
   background: #ffffff;
 }
 
+.inline-input {
+  width: 82px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
 .session-box span {
   max-width: 180px;
   overflow: hidden;
