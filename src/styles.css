@@ -370,6 +370,30 @@ form {
   line-height: 1.5;
 }
 
+.calc-box {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.calc-box span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dce2ea;
+  border-radius: 8px;
+  color: #596579;
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.calc-box strong {
+  color: #162033;
+}
+
 label {
   display: grid;
   gap: 7px;

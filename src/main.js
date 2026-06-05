@@ -130,6 +130,7 @@ const paymentRatio = (type) =>
     "선금 50%": 0.5,
     "잔금 50%": 0.5
   })[type] || 0;
+const withholdingRate = (type) => (type === "사업소득 3.3%" ? 0.033 : 0);
 const escapeAttr = (value) =>
   String(value || "")
     .replace(/&/g, "&amp;")
@@ -262,6 +263,9 @@ async function submitPayment(event) {
   const estimateTotal = parseAmount(formData.get("estimate_total"));
   const paymentType = String(formData.get("payment_type") || "일시 지급");
   const amount = parseAmount(formData.get("amount"));
+  const taxType = String(formData.get("tax_type") || "일반 송금");
+  const withholdingAmount = Math.round(amount * withholdingRate(taxType));
+  const netAmount = amount - withholdingAmount;
   const memo = String(formData.get("memo") || "").trim();
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
 
@@ -285,6 +289,9 @@ async function submitPayment(event) {
     estimate_total: estimateTotal,
     payment_type: paymentType,
     amount,
+    tax_type: taxType,
+    withholding_amount: withholdingAmount,
+    net_amount: netAmount,
     memo,
     status: "신청",
     requested_at: today()
@@ -493,6 +500,19 @@ function syncPaymentAmount(form) {
 
   if (!ratio || !estimateTotal) return;
   amountInput.value = String(Math.round(estimateTotal * ratio));
+  syncTaxPreview(form);
+}
+
+function syncTaxPreview(form) {
+  const amount = parseAmount(form.querySelector("[name='amount']")?.value);
+  const taxType = form.querySelector("[name='tax_type']")?.value || "일반 송금";
+  const withholdingAmount = Math.round(amount * withholdingRate(taxType));
+  const netAmount = amount - withholdingAmount;
+
+  const withholdingPreview = form.querySelector("[data-withholding-preview]");
+  const netPreview = form.querySelector("[data-net-preview]");
+  if (withholdingPreview) withholdingPreview.textContent = formatKRW(withholdingAmount);
+  if (netPreview) netPreview.textContent = formatKRW(netAmount);
 }
 
 function kpiData(data) {
@@ -541,6 +561,9 @@ function paymentRows(data) {
         <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
         <td>${payment.payment_type || "일시 지급"}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
+        <td>${payment.tax_type || "일반 송금"}</td>
+        <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
+        <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
       </tr>`
@@ -557,6 +580,9 @@ function paymentReviewRows(data) {
         <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
         <td>${payment.payment_type || "일시 지급"}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
+        <td>${payment.tax_type || "일반 송금"}</td>
+        <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
+        <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
         <td>
@@ -709,6 +735,16 @@ function paymentForm() {
           </select>
         </label>
         <label>이번 신청 금액<input name="amount" inputmode="numeric" placeholder="예: 5000000" autocomplete="off" /></label>
+        <label>지급 유형
+          <select name="tax_type">
+            <option value="일반 송금">일반 송금</option>
+            <option value="사업소득 3.3%">사업소득 3.3%</option>
+          </select>
+        </label>
+        <div class="calc-box">
+          <span>원천징수액 <strong data-withholding-preview>0원</strong></span>
+          <span>실지급액 <strong data-net-preview>0원</strong></span>
+        </div>
         <label>메모<input name="memo" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">검토 요청 생성</button>
@@ -807,7 +843,7 @@ function dashboardView(data) {
           <h2>최근 결제 신청</h2>
           <button data-view-link="결제 신청">전체 보기</button>
         </div>
-        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "상태", "신청일"], paymentRows(data))}
+        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "상태", "신청일"], paymentRows(data))}
       </article>
 
       <article class="panel">
@@ -841,7 +877,7 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
         </div>
-        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "상태", "신청일", "처리"], paymentReviewRows(data))}
+        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
   `;
@@ -1169,6 +1205,9 @@ function render(notice = "") {
     paymentFormElement.addEventListener("submit", submitPayment);
     paymentFormElement.querySelector("[name='estimate_total']")?.addEventListener("input", () => syncPaymentAmount(paymentFormElement));
     paymentFormElement.querySelector("[name='payment_type']")?.addEventListener("change", () => syncPaymentAmount(paymentFormElement));
+    paymentFormElement.querySelector("[name='amount']")?.addEventListener("input", () => syncTaxPreview(paymentFormElement));
+    paymentFormElement.querySelector("[name='tax_type']")?.addEventListener("change", () => syncTaxPreview(paymentFormElement));
+    syncTaxPreview(paymentFormElement);
   }
 
   const vendorFormElement = document.querySelector("#vendor-form");
