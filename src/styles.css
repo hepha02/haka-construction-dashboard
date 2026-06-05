@@ -524,6 +524,38 @@ button:disabled {
   background: #fee8e6;
 }
 
+.transfer-download-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.transfer-download-panel h2,
+.transfer-download-panel p {
+  margin: 0;
+}
+
+.transfer-download-panel p {
+  margin-top: 6px;
+  color: #667386;
+  font-size: 13px;
+}
+
+.transfer-summary {
+  display: grid;
+  gap: 4px;
+  min-width: 180px;
+  color: #667386;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.transfer-summary strong {
+  color: #162033;
+  font-size: 18px;
+}
+
 .muted {
   color: #7a8597;
   font-size: 12px;
@@ -579,7 +611,8 @@ button:disabled {
   nav,
   .kpis,
   .two,
-  .lower {
+  .lower,
+  .transfer-download-panel {
     grid-template-columns: 1fr;
   }
 }

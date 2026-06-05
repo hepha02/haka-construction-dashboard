@@ -104,7 +104,7 @@ const nav = [
 
 const roleMenus = {
   "전체 관리자": nav,
-  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "결제 계좌 관리", "진열장 원가 배분", "은행 이체 파일 생성"]
+  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "결제 계좌 관리", "진열장 원가 배분"]
 };
 
 const roleLabels = {
@@ -1230,7 +1230,13 @@ function dashboardView(data) {
 }
 
 function paymentView(data) {
+  const canDownloadTransfer = visibleNav().includes("은행 이체 파일 생성");
+  const approvedCount = approvedPayments(data).length;
   const readyTransferCount = bankTransferRecords(data).filter((record) => record.ready).length;
+  const readyTransferAmount = bankTransferRecords(data)
+    .filter((record) => record.ready)
+    .reduce((sum, record) => sum + record.amount, 0);
+
   return `
     <section class="grid two">
       ${paymentForm()}
@@ -1239,12 +1245,31 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <div class="row-actions">
             <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
-            <button data-bank-transfer-download>이체 파일 ${readyTransferCount}건</button>
+            ${canDownloadTransfer ? `<button data-bank-transfer-download>이체 파일 ${readyTransferCount}건</button>` : ""}
           </div>
         </div>
         ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
+    ${
+      canDownloadTransfer
+        ? `<section class="panel transfer-download-panel">
+            <div>
+              <h2>은행 이체 엑셀 다운로드</h2>
+              <p>승인된 결제건 중 계좌정보가 있는 건만 은행 대량이체 파일로 내려받습니다.</p>
+            </div>
+            <div class="transfer-summary">
+              <span>승인 ${approvedCount}건</span>
+              <span>다운로드 가능 ${readyTransferCount}건</span>
+              <strong>${formatKRW(readyTransferAmount)}</strong>
+            </div>
+            <div class="row-actions">
+              <button class="primary" data-bank-transfer-download>엑셀 다운로드</button>
+              <button data-view-link="은행 이체 파일 생성">상세 보기</button>
+            </div>
+          </section>`
+        : ""
+    }
   `;
 }
 
