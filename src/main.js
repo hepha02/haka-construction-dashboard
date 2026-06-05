@@ -11,6 +11,7 @@ const supabase =
     ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 const CONSTRUCTION_FILE_BUCKET = "construction-start-files";
+const PAYMENT_FILE_BUCKET = "payment-files";
 const basePaymentItems = [
   "철거",
   "금속공사",
@@ -221,6 +222,14 @@ function findDuplicateRisk(data, vendor, amount) {
   });
 }
 
+function findSameStoreItemRisk(data, store, paymentItem) {
+  return data.payments.find((payment) => {
+    const sameStore = String(payment.store || "").trim() === store.trim();
+    const sameItem = String(payment.payment_item || "").trim() === paymentItem.trim();
+    return sameStore && sameItem;
+  });
+}
+
 async function uploadConstructionFiles(fileList, folder) {
   const files = Array.from(fileList || []).filter((file) => file.size > 0);
   if (!files.length) return [];
@@ -250,6 +259,35 @@ async function uploadConstructionFiles(fileList, folder) {
   return uploaded;
 }
 
+async function uploadPaymentFiles(fileList, folder) {
+  const files = Array.from(fileList || []).filter((file) => file.size > 0);
+  if (!files.length) return [];
+
+  if (!supabase) {
+    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
+  }
+
+  const uploaded = [];
+  for (const file of files) {
+    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
+    const { error } = await supabase.storage
+      .from(PAYMENT_FILE_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (error) throw error;
+
+    const { data } = supabase.storage.from(PAYMENT_FILE_BUCKET).getPublicUrl(path);
+    uploaded.push({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      path,
+      url: data.publicUrl
+    });
+  }
+  return uploaded;
+}
+
 async function submitPayment(event) {
   event.preventDefault();
 
@@ -268,6 +306,10 @@ async function submitPayment(event) {
   const netAmount = amount - withholdingAmount;
   const memo = String(formData.get("memo") || "").trim();
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
+  const sameStoreItem = findSameStoreItemRisk(currentData, store, paymentItem);
+  const estimateFiles = formData.getAll("estimate_files").filter((file) => file.size > 0);
+  const taxInvoiceFiles = formData.getAll("tax_invoice_files").filter((file) => file.size > 0);
+  const idCardFiles = formData.getAll("id_card_files").filter((file) => file.size > 0);
 
   if (!store || !vendor || !paymentItem || !estimateTotal || !amount) {
     message.textContent = "매장명, 업체, 결제 항목, 견적 총액, 신청 금액을 모두 입력해 주세요.";
@@ -275,12 +317,44 @@ async function submitPayment(event) {
     return;
   }
 
+  if (taxType === "일반 송금" && (!estimateFiles.length || !taxInvoiceFiles.length)) {
+    message.textContent = "일반 송금은 견적서와 세금계산서를 첨부해야 합니다.";
+    message.className = "form-message error";
+    return;
+  }
+
+  if (taxType === "사업소득 3.3%" && !idCardFiles.length) {
+    message.textContent = "사업소득 3.3% 지급은 주민등록증 첨부가 필요합니다.";
+    message.className = "form-message error";
+    return;
+  }
+
   submitButton.disabled = true;
   submitButton.textContent = "저장 중";
+  message.textContent = "첨부 자료를 업로드하고 있습니다.";
+  message.className = duplicate ? "form-message warning" : "form-message";
+
+  let attachmentFiles = {};
+  try {
+    attachmentFiles = {
+      estimate_files: await uploadPaymentFiles(estimateFiles, "estimates"),
+      tax_invoice_files: await uploadPaymentFiles(taxInvoiceFiles, "tax-invoices"),
+      id_card_files: await uploadPaymentFiles(idCardFiles, "id-cards")
+    };
+  } catch (error) {
+    submitButton.disabled = false;
+    submitButton.textContent = "검토 요청 생성";
+    message.textContent = `첨부 업로드 실패: ${error.message}`;
+    message.className = "form-message error";
+    return;
+  }
+
   message.textContent = duplicate
     ? `중복 의심: ${duplicate.store} / ${formatKRW(duplicate.amount)} 건과 비슷합니다.`
+    : sameStoreItem
+      ? `확인 필요: ${store} / ${paymentItem} 항목에 기존 신청이 있습니다. 중복이 아니면 견적서에는 같은 항목 합계로 반영됩니다.`
     : "신청 건을 저장하고 있습니다.";
-  message.className = duplicate ? "form-message warning" : "form-message";
+  message.className = duplicate || sameStoreItem ? "form-message warning" : "form-message";
 
   const newPayment = {
     store,
@@ -292,6 +366,9 @@ async function submitPayment(event) {
     tax_type: taxType,
     withholding_amount: withholdingAmount,
     net_amount: netAmount,
+    attachment_files: attachmentFiles,
+    estimate_group_mode: "매장별 항목 합산",
+    estimate_group_key: `${store}::${paymentItem}`,
     memo,
     status: "신청",
     requested_at: today()
@@ -564,6 +641,8 @@ function paymentRows(data) {
         <td>${payment.tax_type || "일반 송금"}</td>
         <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
         <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
+        <td>${paymentAttachmentSummary(payment)}</td>
+        <td>${payment.estimate_group_mode || "매장별 항목 합산"}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
       </tr>`
@@ -583,6 +662,8 @@ function paymentReviewRows(data) {
         <td>${payment.tax_type || "일반 송금"}</td>
         <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
         <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
+        <td>${paymentAttachmentSummary(payment)}</td>
+        <td>${payment.estimate_group_mode || "매장별 항목 합산"}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
         <td>
@@ -625,6 +706,19 @@ function fileLinks(files, fallbackText = "") {
         : `<span>${escapeAttr(file.name || "파일")}</span>`
     )
     .join("<br />");
+}
+
+function paymentAttachmentSummary(payment) {
+  const files = payment.attachment_files || {};
+  const estimateCount = (files.estimate_files || []).length;
+  const taxInvoiceCount = (files.tax_invoice_files || []).length;
+  const idCardCount = (files.id_card_files || []).length;
+
+  if (payment.tax_type === "사업소득 3.3%") {
+    return idCardCount ? `주민등록증 ${idCardCount}개` : "주민등록증 필요";
+  }
+
+  return `견적서 ${estimateCount}개 / 세금계산서 ${taxInvoiceCount}개`;
 }
 
 function constructionStartRows(data) {
@@ -745,6 +839,9 @@ function paymentForm() {
           <span>원천징수액 <strong data-withholding-preview>0원</strong></span>
           <span>실지급액 <strong data-net-preview>0원</strong></span>
         </div>
+        <label>견적서 첨부<input name="estimate_files" type="file" accept="image/*,application/pdf" multiple /></label>
+        <label>세금계산서 첨부<input name="tax_invoice_files" type="file" accept="image/*,application/pdf" multiple /></label>
+        <label>주민등록증 첨부<input name="id_card_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>메모<input name="memo" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">검토 요청 생성</button>
@@ -843,7 +940,7 @@ function dashboardView(data) {
           <h2>최근 결제 신청</h2>
           <button data-view-link="결제 신청">전체 보기</button>
         </div>
-        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "상태", "신청일"], paymentRows(data))}
+        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일"], paymentRows(data))}
       </article>
 
       <article class="panel">
@@ -877,7 +974,7 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
         </div>
-        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "상태", "신청일", "처리"], paymentReviewRows(data))}
+        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
   `;
