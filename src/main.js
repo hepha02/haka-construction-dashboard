@@ -76,6 +76,17 @@ const fallback = {
   constructionStarts: []
 };
 
+const furnitureCostItems = [
+  { group: "벽장", name: "상부장", baseUnit: 115600, allocationUnit: 57100, quantity: 40, madeAmount: 1260000 },
+  { group: "벽장", name: "하부장", baseUnit: 167500, allocationUnit: 63500, quantity: 40, madeAmount: 2240000 },
+  { group: "진열장", name: "유리장", baseUnit: 287000, allocationUnit: 163500, quantity: 40, madeAmount: 2660000 },
+  { group: "카운터", name: "카운터 서랍형 1200", baseUnit: 831200, allocationUnit: 727200, quantity: 10, madeAmount: 560000 },
+  { group: "카운터", name: "카운터 선반형 1800", baseUnit: 395800, allocationUnit: 395800, quantity: 4, madeAmount: 256000 },
+  { group: "카운터", name: "카운터 선반형 1600", baseUnit: 350600, allocationUnit: 350600, quantity: 2, madeAmount: 122000 },
+  { group: "테이블", name: "테이블 600*1200", baseUnit: 220000, allocationUnit: 161000, quantity: 5, madeAmount: 805000 },
+  { group: "도장", name: "도장 / 총 58통", baseUnit: 180000, allocationUnit: 180000, quantity: 4, madeAmount: 720000 }
+];
+
 const nav = [
   "대시보드",
   "엑셀 업로드",
@@ -125,6 +136,7 @@ const formatKRW = (value) =>
 
 const today = () => new Date().toISOString().slice(0, 10);
 const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
+const numberValue = (value) => Number(value || 0);
 const paymentRatio = (type) =>
   ({
     "일시 지급": 1,
@@ -491,10 +503,16 @@ async function submitConstructionStart(event) {
   const submitButton = form.querySelector("button[type='submit']");
   const message = form.querySelector("[data-construction-start-message]");
   const formData = new FormData(form);
+  const wallCabinetCount = numberValue(formData.get("wall_cabinet_count"));
+  const displayFixtureCount = numberValue(formData.get("display_fixture_count"));
+  const counterCount = numberValue(formData.get("counter_count"));
   const request = {
     store_name: String(formData.get("store_name") || "").trim(),
     area: Number(formData.get("area")),
-    fixture_count: Number(formData.get("fixture_count") || 0),
+    wall_cabinet_count: wallCabinetCount,
+    display_fixture_count: displayFixtureCount,
+    counter_count: counterCount,
+    fixture_count: wallCabinetCount + displayFixtureCount + counterCount,
     table_count: Number(formData.get("table_count") || 0),
     sign_count: Number(formData.get("sign_count") || 0),
     special_notes: String(formData.get("special_notes") || "").trim()
@@ -727,7 +745,9 @@ function constructionStartRows(data) {
       <tr>
         <td>${item.store_name}</td>
         <td>${item.area}평</td>
-        <td>${item.fixture_count || 0}</td>
+        <td>${item.wall_cabinet_count ?? 0}</td>
+        <td>${item.display_fixture_count ?? item.fixture_count ?? 0}</td>
+        <td>${item.counter_count ?? 0}</td>
         <td>${item.table_count || 0}</td>
         <td>${item.sign_count || 0}</td>
         <td>${fileLinks(item.drawing_files, item.drawing_note)}</td>
@@ -907,7 +927,9 @@ function constructionStartForm() {
         <label>매장명<input name="store_name" placeholder="예: 강남압구정 직영점" autocomplete="off" /></label>
         <label>평수<input name="area" inputmode="numeric" placeholder="예: 45" autocomplete="off" /></label>
         <label>도면 파일<input name="drawing_files" type="file" accept="image/*,application/pdf" multiple /></label>
-        <label>필요한 진열장 수<input name="fixture_count" inputmode="numeric" placeholder="예: 8" autocomplete="off" /></label>
+        <label>벽장 수<input name="wall_cabinet_count" inputmode="numeric" placeholder="예: 4" autocomplete="off" /></label>
+        <label>진열장 수<input name="display_fixture_count" inputmode="numeric" placeholder="예: 8" autocomplete="off" /></label>
+        <label>카운터 수<input name="counter_count" inputmode="numeric" placeholder="예: 2" autocomplete="off" /></label>
         <label>필요한 테이블 수<input name="table_count" inputmode="numeric" placeholder="예: 3" autocomplete="off" /></label>
         <label>광고판 갯수<input name="sign_count" inputmode="numeric" placeholder="예: 2" autocomplete="off" /></label>
         <label>매장 기초 사진<input name="base_photo_files" type="file" accept="image/*,application/pdf" multiple /></label>
@@ -989,7 +1011,78 @@ function constructionStartView(data) {
           <h2>공사 시작 접수 목록</h2>
           <button>${data.constructionStarts.length}건 접수</button>
         </div>
-        ${table(["매장", "평수", "진열장", "테이블", "광고판", "도면", "기초 사진", "특이사항"], constructionStartRows(data))}
+        ${table(["매장", "평수", "벽장", "진열장", "카운터", "테이블", "광고판", "도면", "기초 사진", "특이사항"], constructionStartRows(data))}
+      </article>
+    </section>
+  `;
+}
+
+function furnitureAverage(item) {
+  if (item.quantity && item.madeAmount) return Math.round(item.madeAmount / item.quantity);
+  return item.allocationUnit || item.baseUnit || 0;
+}
+
+function furnitureGroupUnit(group) {
+  const items = furnitureCostItems.filter((item) => item.group === group);
+  const total = items.reduce((sum, item) => sum + furnitureAverage(item), 0);
+  if (group === "카운터") return Math.round(total / Math.max(items.length, 1));
+  return total;
+}
+
+function furnitureCostRows() {
+  return furnitureCostItems.map(
+    (item) => `
+      <tr>
+        <td>${item.group}</td>
+        <td>${item.name}</td>
+        <td class="money">${formatKRW(item.baseUnit)}</td>
+        <td class="money">${formatKRW(item.allocationUnit)}</td>
+        <td>${item.quantity || "-"}</td>
+        <td class="money">${formatKRW(item.madeAmount)}</td>
+        <td class="money">${formatKRW(furnitureAverage(item))}</td>
+      </tr>`
+  );
+}
+
+function furnitureAllocationRows(data) {
+  const wallUnit = furnitureGroupUnit("벽장");
+  const displayUnit = furnitureGroupUnit("진열장");
+  const counterUnit = furnitureGroupUnit("카운터");
+
+  return data.constructionStarts.map((item) => {
+    const wallCount = numberValue(item.wall_cabinet_count);
+    const displayCount = numberValue(item.display_fixture_count ?? item.fixture_count);
+    const counterCount = numberValue(item.counter_count);
+    const total = wallCount * wallUnit + displayCount * displayUnit + counterCount * counterUnit;
+
+    return `
+      <tr>
+        <td>${item.store_name}</td>
+        <td>${wallCount}</td>
+        <td>${displayCount}</td>
+        <td>${counterCount}</td>
+        <td class="money">${formatKRW(total)}</td>
+      </tr>`;
+  });
+}
+
+function furnitureAllocationView(data) {
+  return `
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>진열장 원가 기준</h2>
+          <button>엑셀 반영</button>
+        </div>
+        <div class="notice">아름가구 산출금액과 휴가기간 가구 산출금액을 기준으로 먼저 원가 기준표를 만들었습니다. 실제 견적서에는 공사 시작 접수의 벽장/진열장/카운터 수량을 곱해 반영합니다.</div>
+        ${table(["구분", "항목", "아름가구 기준", "휴가기간 단가", "제작수량", "제작금액", "평균 단가"], furnitureCostRows())}
+      </article>
+      <article class="panel">
+        <div class="panel-head">
+          <h2>매장별 예상 배분</h2>
+          <button>${data.constructionStarts.length}개 매장</button>
+        </div>
+        ${table(["매장", "벽장", "진열장", "카운터", "예상 반영 금액"], furnitureAllocationRows(data))}
       </article>
     </section>
   `;
@@ -1087,6 +1180,7 @@ function activeContent(data) {
   if (activeView === "결제 신청") return paymentView(data);
   if (activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
+  if (activeView === "진열장 원가 배분") return furnitureAllocationView(data);
   if (activeView === "관리자 설정") return adminSettingsView(data);
   return placeholderView(activeView);
 }

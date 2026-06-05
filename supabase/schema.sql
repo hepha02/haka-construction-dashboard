@@ -44,6 +44,9 @@ create table if not exists public.construction_starts (
   area integer not null,
   drawing_note text,
   drawing_files jsonb not null default '[]'::jsonb,
+  wall_cabinet_count integer not null default 0,
+  display_fixture_count integer not null default 0,
+  counter_count integer not null default 0,
   fixture_count integer not null default 0,
   table_count integer not null default 0,
   sign_count integer not null default 0,
@@ -183,6 +186,9 @@ with check (
   auth.role() = 'authenticated'
   and length(trim(store_name)) > 0
   and area > 0
+  and wall_cabinet_count >= 0
+  and display_fixture_count >= 0
+  and counter_count >= 0
   and fixture_count >= 0
   and table_count >= 0
   and sign_count >= 0
