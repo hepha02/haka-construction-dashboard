@@ -92,7 +92,7 @@ const nav = [
   "엑셀 업로드",
   "공사 시작 접수",
   "결제 신청",
-  "업체/계좌 관리",
+  "결제 계좌 관리",
   "매장별 공사 관리",
   "진열장 원가 배분",
   "견적서 생성",
@@ -103,7 +103,7 @@ const nav = [
 
 const roleMenus = {
   "전체 관리자": nav,
-  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "업체/계좌 관리", "진열장 원가 배분"]
+  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "결제 계좌 관리", "진열장 원가 배분", "은행 이체 파일 생성"]
 };
 
 const roleLabels = {
@@ -431,7 +431,7 @@ async function submitVendor(event) {
 
   submitButton.disabled = true;
   submitButton.textContent = "저장 중";
-  message.textContent = "업체/계좌 정보를 저장하고 있습니다.";
+  message.textContent = "결제 계좌 정보를 저장하고 있습니다.";
   message.className = "form-message";
 
   if (!supabase) {
@@ -440,7 +440,7 @@ async function submitVendor(event) {
     const { error } = await supabase.from("vendors").insert(vendor);
     if (error) {
       submitButton.disabled = false;
-      submitButton.textContent = "업체 저장";
+      submitButton.textContent = "계좌 저장";
       message.textContent = `저장 실패: ${error.message}`;
       message.className = "form-message error";
       return;
@@ -449,8 +449,8 @@ async function submitVendor(event) {
 
   form.reset();
   currentData = await loadData();
-  activeView = "업체/계좌 관리";
-  render("업체/계좌 정보가 저장됐습니다.");
+  activeView = "결제 계좌 관리";
+  render("결제 계좌 정보가 저장됐습니다.");
 }
 
 async function submitStore(event) {
@@ -1000,7 +1000,7 @@ function vendorForm() {
   return `
     <article class="panel form-panel">
       <div class="panel-head">
-        <h2>업체/계좌 추가</h2>
+        <h2>결제 계좌 추가</h2>
       </div>
       <div class="notice">결제 신청 전에 협력업체와 지급 계좌를 먼저 등록합니다.</div>
       <form id="vendor-form">
@@ -1010,7 +1010,7 @@ function vendorForm() {
         <label>계좌번호<input name="account_number" placeholder="예: 110-000-000000" autocomplete="off" /></label>
         <label>예금주<input name="account_holder" placeholder="예: 도원인테리어" autocomplete="off" /></label>
         <p class="form-message" data-vendor-message></p>
-        <button class="primary wide" type="submit">업체 저장</button>
+        <button class="primary wide" type="submit">계좌 저장</button>
       </form>
     </article>
   `;
@@ -1104,7 +1104,7 @@ function dashboardView(data) {
       <article class="panel">
         <div class="panel-head">
           <h2>주요 협력업체</h2>
-          <button data-view-link="업체/계좌 관리">업체 추가</button>
+          <button data-view-link="결제 계좌 관리">계좌 추가</button>
         </div>
         ${table(["업체", "분류", "은행", "계좌번호", "예금주", "누적 지급", "상태"], vendorRows(data))}
       </article>
@@ -1268,7 +1268,7 @@ function vendorsView(data) {
       ${vendorForm()}
       <article class="panel">
         <div class="panel-head">
-          <h2>업체/계좌 목록</h2>
+          <h2>결제 계좌 목록</h2>
           <button>${data.vendors.length}개 등록</button>
         </div>
         ${table(["업체", "분류", "은행", "계좌번호", "예금주", "누적 지급", "상태"], vendorRows(data))}
@@ -1352,7 +1352,7 @@ function activeContent(data) {
   if (activeView === "대시보드") return dashboardView(data);
   if (activeView === "공사 시작 접수") return constructionStartView(data);
   if (activeView === "결제 신청") return paymentView(data);
-  if (activeView === "업체/계좌 관리") return vendorsView(data);
+  if (activeView === "결제 계좌 관리" || activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
   if (activeView === "진열장 원가 배분") return furnitureAllocationView(data);
   if (activeView === "은행 이체 파일 생성") return bankTransferView(data);
