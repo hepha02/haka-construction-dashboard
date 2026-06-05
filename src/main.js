@@ -12,6 +12,7 @@ const supabase =
     : null;
 const CONSTRUCTION_FILE_BUCKET = "construction-start-files";
 const PAYMENT_FILE_BUCKET = "payment-files";
+const VENDOR_FILE_BUCKET = "vendor-files";
 const basePaymentItems = [
   "철거",
   "금속공사",
@@ -302,6 +303,35 @@ async function uploadPaymentFiles(fileList, folder) {
   return uploaded;
 }
 
+async function uploadVendorFiles(fileList, folder) {
+  const files = Array.from(fileList || []).filter((file) => file.size > 0);
+  if (!files.length) return [];
+
+  if (!supabase) {
+    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
+  }
+
+  const uploaded = [];
+  for (const file of files) {
+    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
+    const { error } = await supabase.storage
+      .from(VENDOR_FILE_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (error) throw error;
+
+    const { data } = supabase.storage.from(VENDOR_FILE_BUCKET).getPublicUrl(path);
+    uploaded.push({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      path,
+      url: data.publicUrl
+    });
+  }
+  return uploaded;
+}
+
 async function submitPayment(event) {
   event.preventDefault();
 
@@ -318,6 +348,9 @@ async function submitPayment(event) {
   const taxType = String(formData.get("tax_type") || "일반 송금");
   const withholdingAmount = Math.round(amount * withholdingRate(taxType));
   const netAmount = amount - withholdingAmount;
+  const vendorBank = String(formData.get("vendor_bank") || "").trim();
+  const vendorAccountNumber = String(formData.get("vendor_account_number") || "").trim();
+  const vendorAccountHolder = String(formData.get("vendor_account_holder") || "").trim();
   const memo = String(formData.get("memo") || "").trim();
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
   const sameStoreItem = findSameStoreItemRisk(currentData, store, paymentItem);
@@ -325,8 +358,8 @@ async function submitPayment(event) {
   const taxInvoiceFiles = formData.getAll("tax_invoice_files").filter((file) => file.size > 0);
   const idCardFiles = formData.getAll("id_card_files").filter((file) => file.size > 0);
 
-  if (!store || !vendor || !paymentItem || !estimateTotal || !amount) {
-    message.textContent = "매장명, 업체, 결제 항목, 견적 총액, 신청 금액을 모두 입력해 주세요.";
+  if (!store || !vendor || !paymentItem || !estimateTotal || !amount || !vendorBank || !vendorAccountNumber || !vendorAccountHolder) {
+    message.textContent = "매장명, 업체, 결제 항목, 견적 총액, 신청 금액, 이체 계좌를 모두 입력해 주세요.";
     message.className = "form-message error";
     return;
   }
@@ -377,6 +410,9 @@ async function submitPayment(event) {
     estimate_total: estimateTotal,
     payment_type: paymentType,
     amount,
+    vendor_bank: vendorBank,
+    vendor_account_number: vendorAccountNumber,
+    vendor_account_holder: vendorAccountHolder,
     tax_type: taxType,
     withholding_amount: withholdingAmount,
     net_amount: netAmount,
@@ -413,15 +449,16 @@ async function submitVendor(event) {
   const submitButton = form.querySelector("button[type='submit']");
   const message = form.querySelector("[data-vendor-message]");
   const formData = new FormData(form);
+  const vendorId = Number(formData.get("vendor_id") || 0);
   const vendor = {
     name: String(formData.get("name") || "").trim(),
     category: String(formData.get("category") || "").trim(),
     bank: String(formData.get("bank") || "").trim(),
     account_number: String(formData.get("account_number") || "").trim(),
-    account_holder: String(formData.get("account_holder") || "").trim(),
-    risk: "정상",
-    total: 0
+    account_holder: String(formData.get("account_holder") || "").trim()
   };
+  const businessLicenseFiles = formData.getAll("business_license_files").filter((file) => file.size > 0);
+  const bankbookFiles = formData.getAll("bankbook_files").filter((file) => file.size > 0);
 
   if (!vendor.name || !vendor.category || !vendor.bank || !vendor.account_number || !vendor.account_holder) {
     message.textContent = "업체명, 분류, 은행, 계좌번호, 예금주를 모두 입력해 주세요.";
@@ -429,15 +466,51 @@ async function submitVendor(event) {
     return;
   }
 
+  if (!vendorId && (!businessLicenseFiles.length || !bankbookFiles.length)) {
+    message.textContent = "최초 등록 시 사업자등록증과 통장사본을 모두 첨부해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
+
   submitButton.disabled = true;
   submitButton.textContent = "저장 중";
-  message.textContent = "결제 계좌 정보를 저장하고 있습니다.";
+  message.textContent = "첨부 자료를 업로드하고 있습니다.";
   message.className = "form-message";
 
+  let attachmentFiles = {};
+  try {
+    const existing = vendorId
+      ? currentData.vendors.find((item) => item.id === vendorId)?.attachment_files || {}
+      : {};
+    attachmentFiles = {
+      business_license_files: [
+        ...(existing.business_license_files || []),
+        ...(await uploadVendorFiles(businessLicenseFiles, "business-licenses"))
+      ],
+      bankbook_files: [
+        ...(existing.bankbook_files || []),
+        ...(await uploadVendorFiles(bankbookFiles, "bankbooks"))
+      ]
+    };
+  } catch (error) {
+    submitButton.disabled = false;
+    submitButton.textContent = "계좌 저장";
+    message.textContent = `첨부 업로드 실패: ${error.message}`;
+    message.className = "form-message error";
+    return;
+  }
+
+  vendor.attachment_files = attachmentFiles;
+  message.textContent = "결제 계좌 정보를 저장하고 있습니다.";
+
   if (!supabase) {
-    fallback.vendors = [{ id: Date.now(), ...vendor }, ...fallback.vendors];
+    fallback.vendors = vendorId
+      ? fallback.vendors.map((item) => (item.id === vendorId ? { ...item, ...vendor } : item))
+      : [{ id: Date.now(), ...vendor, risk: "정상", total: 0 }, ...fallback.vendors];
   } else {
-    const { error } = await supabase.from("vendors").insert(vendor);
+    const { error } = vendorId
+      ? await supabase.from("vendors").update(vendor).eq("id", vendorId)
+      : await supabase.from("vendors").insert(vendor);
     if (error) {
       submitButton.disabled = false;
       submitButton.textContent = "계좌 저장";
@@ -450,7 +523,7 @@ async function submitVendor(event) {
   form.reset();
   currentData = await loadData();
   activeView = "결제 계좌 관리";
-  render("결제 계좌 정보가 저장됐습니다.");
+  render(vendorId ? "결제 계좌 정보가 수정됐습니다." : "결제 계좌 정보가 저장됐습니다.");
 }
 
 async function submitStore(event) {
@@ -626,13 +699,15 @@ function approvedPayments(data) {
 
 function bankTransferRecord(data, payment) {
   const vendor = findVendor(data, payment);
-  const holder = vendor.account_holder || payment.vendor;
+  const bank = payment.vendor_bank || vendor.bank;
+  const account = payment.vendor_account_number || vendor.account_number;
+  const holder = payment.vendor_account_holder || vendor.account_holder || payment.vendor;
   const amount = Number(payment.net_amount || payment.amount || 0);
   const memo = `${payment.store || ""} ${payment.payment_item || ""}`.trim();
 
   return {
-    bank: normalizeBankName(vendor.bank),
-    account: onlyDigits(vendor.account_number),
+    bank: normalizeBankName(bank),
+    account: onlyDigits(account),
     holder,
     amount,
     withdrawMemo: "하카공사비",
@@ -642,7 +717,7 @@ function bankTransferRecord(data, payment) {
     key: textLimit(`${payment.id || ""}-${payment.requested_at || today()}`, 20),
     payment,
     vendor,
-    ready: Boolean(vendor.bank && vendor.account_number && holder && amount > 0)
+    ready: Boolean(bank && account && holder && amount > 0)
   };
 }
 
@@ -720,6 +795,31 @@ function syncTaxPreview(form) {
   if (netPreview) netPreview.textContent = formatKRW(netAmount);
 }
 
+function syncPaymentVendorAccount(form) {
+  const vendorName = String(form.querySelector("[name='vendor']")?.value || "").trim();
+  const vendor = currentData.vendors.find((item) => String(item.name || "").trim() === vendorName);
+  if (!vendor) return;
+
+  form.querySelector("[name='vendor_bank']").value = vendor.bank || "";
+  form.querySelector("[name='vendor_account_number']").value = vendor.account_number || "";
+  form.querySelector("[name='vendor_account_holder']").value = vendor.account_holder || "";
+}
+
+function fillVendorForm(vendorId) {
+  const vendor = currentData.vendors.find((item) => item.id === vendorId);
+  const form = document.querySelector("#vendor-form");
+  if (!vendor || !form) return;
+
+  form.querySelector("[name='vendor_id']").value = vendor.id;
+  form.querySelector("[name='name']").value = vendor.name || "";
+  form.querySelector("[name='category']").value = vendor.category || "";
+  form.querySelector("[name='bank']").value = vendor.bank || "";
+  form.querySelector("[name='account_number']").value = vendor.account_number || "";
+  form.querySelector("[name='account_holder']").value = vendor.account_holder || "";
+  form.querySelector("button[type='submit']").textContent = "계좌 수정";
+  form.querySelector("[data-vendor-message]").textContent = "기존 계좌 정보를 수정 중입니다. 새 파일을 첨부하면 기존 파일에 추가됩니다.";
+}
+
 function kpiData(data) {
   const completed = data.stores.filter((store) => store.status === "완료").length;
   const active = data.stores.filter((store) => store.status === "진행중").length;
@@ -762,6 +862,9 @@ function paymentRows(data) {
       <tr>
         <td>${payment.store}</td>
         <td>${payment.vendor}</td>
+        <td>${payment.vendor_bank || "-"}</td>
+        <td>${payment.vendor_account_number || "-"}</td>
+        <td>${payment.vendor_account_holder || "-"}</td>
         <td>${payment.payment_item || "-"}</td>
         <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
         <td>${payment.payment_type || "일시 지급"}</td>
@@ -885,16 +988,23 @@ function constructionStartRows(data) {
 
 function vendorRows(data) {
   return data.vendors.map(
-    (vendor) => `
-      <tr>
-        <td>${vendor.name}</td>
-        <td>${vendor.category}</td>
-        <td>${vendor.bank}</td>
-        <td>${vendor.account_number || "-"}</td>
-        <td>${vendor.account_holder || "-"}</td>
-        <td class="money">${formatKRW(vendor.total)}</td>
-        <td><span class="badge ${statusClass(vendor.risk)}">${vendor.risk}</span></td>
-      </tr>`
+    (vendor) => {
+      const files = vendor.attachment_files || {};
+      const licenseCount = (files.business_license_files || []).length;
+      const bankbookCount = (files.bankbook_files || []).length;
+
+      return `
+        <tr>
+          <td>${vendor.name}</td>
+          <td>${vendor.category}</td>
+          <td>${vendor.bank}</td>
+          <td>${vendor.account_number || "-"}</td>
+          <td>${vendor.account_holder || "-"}</td>
+          <td>사업자 ${licenseCount}개 / 통장 ${bankbookCount}개</td>
+          <td><span class="badge ${statusClass(vendor.risk)}">${vendor.risk}</span></td>
+          <td><button data-vendor-edit="${vendor.id}">수정</button></td>
+        </tr>`;
+    }
   );
 }
 
@@ -958,6 +1068,9 @@ function paymentForm() {
             ${vendorSuggestions(currentData)}
           </datalist>
         </label>
+        <label>입금은행<input name="vendor_bank" placeholder="업체 선택 시 자동 입력, 변경 가능" autocomplete="off" /></label>
+        <label>입금계좌<input name="vendor_account_number" placeholder="예: 110-000-000000" autocomplete="off" /></label>
+        <label>예금주<input name="vendor_account_holder" placeholder="예: 도원인테리어" autocomplete="off" /></label>
         <label>결제 항목
           <input name="payment_item" list="payment-item-suggestions" placeholder="직접입력 또는 공사항목 검색" autocomplete="off" />
           <datalist id="payment-item-suggestions">
@@ -1004,11 +1117,14 @@ function vendorForm() {
       </div>
       <div class="notice">결제 신청 전에 협력업체와 지급 계좌를 먼저 등록합니다.</div>
       <form id="vendor-form">
+        <input type="hidden" name="vendor_id" />
         <label>업체명<input name="name" placeholder="예: 도원인테리어" autocomplete="off" /></label>
         <label>공종 분류<input name="category" placeholder="예: 시공, 전기, 설비" autocomplete="off" /></label>
         <label>은행명<input name="bank" placeholder="예: 신한은행" autocomplete="off" /></label>
         <label>계좌번호<input name="account_number" placeholder="예: 110-000-000000" autocomplete="off" /></label>
         <label>예금주<input name="account_holder" placeholder="예: 도원인테리어" autocomplete="off" /></label>
+        <label>사업자등록증 첨부<input name="business_license_files" type="file" accept="image/*,application/pdf" multiple /></label>
+        <label>통장사본 첨부<input name="bankbook_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <p class="form-message" data-vendor-message></p>
         <button class="primary wide" type="submit">계좌 저장</button>
       </form>
@@ -1106,7 +1222,7 @@ function dashboardView(data) {
           <h2>주요 협력업체</h2>
           <button data-view-link="결제 계좌 관리">계좌 추가</button>
         </div>
-        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "누적 지급", "상태"], vendorRows(data))}
+        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "첨부", "상태", "수정"], vendorRows(data))}
       </article>
       ${paymentForm()}
     </section>
@@ -1126,7 +1242,7 @@ function paymentView(data) {
             <button data-bank-transfer-download>이체 파일 ${readyTransferCount}건</button>
           </div>
         </div>
-        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data))}
+        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
   `;
@@ -1271,7 +1387,7 @@ function vendorsView(data) {
           <h2>결제 계좌 목록</h2>
           <button>${data.vendors.length}개 등록</button>
         </div>
-        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "누적 지급", "상태"], vendorRows(data))}
+        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "첨부", "상태", "수정"], vendorRows(data))}
       </article>
     </section>
   `;
@@ -1569,6 +1685,8 @@ function render(notice = "") {
   const paymentFormElement = document.querySelector("#payment-form");
   if (paymentFormElement) {
     paymentFormElement.addEventListener("submit", submitPayment);
+    paymentFormElement.querySelector("[name='vendor']")?.addEventListener("input", () => syncPaymentVendorAccount(paymentFormElement));
+    paymentFormElement.querySelector("[name='vendor']")?.addEventListener("change", () => syncPaymentVendorAccount(paymentFormElement));
     paymentFormElement.querySelector("[name='estimate_total']")?.addEventListener("input", () => syncPaymentAmount(paymentFormElement));
     paymentFormElement.querySelector("[name='payment_type']")?.addEventListener("change", () => syncPaymentAmount(paymentFormElement));
     paymentFormElement.querySelector("[name='amount']")?.addEventListener("input", () => syncTaxPreview(paymentFormElement));
@@ -1578,6 +1696,10 @@ function render(notice = "") {
 
   const vendorFormElement = document.querySelector("#vendor-form");
   if (vendorFormElement) vendorFormElement.addEventListener("submit", submitVendor);
+
+  document.querySelectorAll("[data-vendor-edit]").forEach((button) => {
+    button.addEventListener("click", () => fillVendorForm(Number(button.dataset.vendorEdit)));
+  });
 
   const storeFormElement = document.querySelector("#store-form");
   if (storeFormElement) storeFormElement.addEventListener("submit", submitStore);

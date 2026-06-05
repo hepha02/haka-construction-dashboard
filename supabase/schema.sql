@@ -6,6 +6,9 @@ create table if not exists public.payments (
   estimate_total bigint,
   payment_type text not null default '일시 지급' check (payment_type in ('일시 지급', '선금 50%', '잔금 50%', '직접 입력')),
   amount bigint not null,
+  vendor_bank text,
+  vendor_account_number text,
+  vendor_account_holder text,
   tax_type text not null default '일반 송금' check (tax_type in ('일반 송금', '사업소득 3.3%')),
   withholding_amount bigint not null default 0,
   net_amount bigint,
@@ -71,6 +74,19 @@ set public = excluded.public,
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
+  'vendor-files',
+  'vendor-files',
+  true,
+  20971520,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
+)
+on conflict (id) do update
+set public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
   'payment-files',
   'payment-files',
   true,
@@ -96,6 +112,7 @@ create table if not exists public.vendors (
   bank text not null,
   account_number text,
   account_holder text,
+  attachment_files jsonb not null default '{}'::jsonb,
   risk text not null default '정상',
   total bigint not null default 0
 );
@@ -135,6 +152,16 @@ on storage.objects
 for insert
 with check (bucket_id = 'payment-files' and auth.role() = 'authenticated');
 
+create policy vendor_files_read
+on storage.objects
+for select
+using (bucket_id = 'vendor-files' and auth.role() = 'authenticated');
+
+create policy vendor_files_insert
+on storage.objects
+for insert
+with check (bucket_id = 'vendor-files' and auth.role() = 'authenticated');
+
 create policy "authenticated insert stores"
 on public.stores
 for insert
@@ -173,6 +200,9 @@ with check (
   and net_amount > 0
   and length(trim(store)) > 0
   and length(trim(vendor)) > 0
+  and length(trim(vendor_bank)) > 0
+  and length(trim(vendor_account_number)) > 0
+  and length(trim(vendor_account_holder)) > 0
   and length(trim(payment_item)) > 0
   and payment_type in ('일시 지급', '선금 50%', '잔금 50%', '직접 입력')
   and tax_type in ('일반 송금', '사업소득 3.3%')
@@ -199,6 +229,19 @@ on public.payments
 for update
 using (auth.role() = 'authenticated' and status = '신청')
 with check (auth.role() = 'authenticated' and status in ('승인', '반려'));
+
+create policy authenticated_update_vendors
+on public.vendors
+for update
+using (auth.role() = 'authenticated')
+with check (
+  auth.role() = 'authenticated'
+  and length(trim(name)) > 0
+  and length(trim(category)) > 0
+  and length(trim(bank)) > 0
+  and length(trim(account_number)) > 0
+  and length(trim(account_holder)) > 0
+);
 
 insert into public.stores (name, area, status, budget, spent) values
   ('성수 플래그십', 52, '완료', 210000000, 198400000),
