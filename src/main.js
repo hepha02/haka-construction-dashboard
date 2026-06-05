@@ -13,12 +13,7 @@ const supabase =
 const CONSTRUCTION_FILE_BUCKET = "construction-start-files";
 
 const fallback = {
-  payments: [
-    { id: 1, store: "성수 플래그십", vendor: "한빛전기", amount: 18400000, status: "승인", requested_at: "2026-05-28" },
-    { id: 2, store: "부산 센텀", vendor: "도원인테리어", amount: 32700000, status: "신청", requested_at: "2026-05-27" },
-    { id: 3, store: "대전 둔산", vendor: "서진설비", amount: 9800000, status: "반려", requested_at: "2026-05-26" },
-    { id: 4, store: "제주 노형", vendor: "제이건축", amount: 24100000, status: "승인", requested_at: "2026-05-25" }
-  ],
+  payments: [],
   stores: [
     { id: 1, name: "성수 플래그십", area: 52, status: "완료", budget: 210000000, spent: 198400000 },
     { id: 2, name: "부산 센텀", area: 47, status: "진행중", budget: 186000000, spent: 122700000 },
@@ -31,6 +26,7 @@ const fallback = {
     { id: 3, name: "서진설비", category: "설비", bank: "하나은행", account_number: "352-000-000003", account_holder: "서진설비", risk: "증빙확인", total: 41200000 }
   ],
   userRoles: [],
+  paymentItems: [],
   constructionStarts: []
 };
 
@@ -108,20 +104,25 @@ const statusClass = (status) => {
 async function loadData() {
   if (!supabase) return fallback;
 
-  const [payments, stores, vendors, constructionStarts, userRoles] = await Promise.all([
+  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems] = await Promise.all([
     supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(12),
     supabase.from("stores").select("*").order("id", { ascending: true }),
     supabase.from("vendors").select("*").order("id", { ascending: true }),
     supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30),
-    supabase.from("user_roles").select("email, role, created_at").order("email", { ascending: true })
+    supabase.from("user_roles").select("email, role, created_at").order("email", { ascending: true }),
+    supabase.from("construction_cost_parts").select("part_name").order("part_name", { ascending: true })
   ]);
+  const uniquePaymentItems = paymentItems.error
+    ? fallback.paymentItems
+    : [...new Set(paymentItems.data.map((item) => item.part_name).filter(Boolean))];
 
   return {
     payments: payments.error ? fallback.payments : payments.data,
     stores: stores.error ? fallback.stores : stores.data,
     vendors: vendors.error ? fallback.vendors : vendors.data,
     constructionStarts: constructionStarts.error ? fallback.constructionStarts : constructionStarts.data,
-    userRoles: userRoles.error ? fallback.userRoles : userRoles.data
+    userRoles: userRoles.error ? fallback.userRoles : userRoles.data,
+    paymentItems: uniquePaymentItems
   };
 }
 
@@ -206,11 +207,12 @@ async function submitPayment(event) {
   const formData = new FormData(form);
   const store = String(formData.get("store") || "").trim();
   const vendor = String(formData.get("vendor") || "").trim();
+  const paymentItem = String(formData.get("payment_item") || "").trim();
   const amount = parseAmount(formData.get("amount"));
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
 
-  if (!store || !vendor || !amount) {
-    message.textContent = "매장명, 업체, 신청 금액을 모두 입력해 주세요.";
+  if (!store || !vendor || !paymentItem || !amount) {
+    message.textContent = "매장명, 업체, 결제 항목, 신청 금액을 모두 입력해 주세요.";
     message.className = "form-message error";
     return;
   }
@@ -225,6 +227,7 @@ async function submitPayment(event) {
   const newPayment = {
     store,
     vendor,
+    payment_item: paymentItem,
     amount,
     status: "신청",
     requested_at: today()
@@ -466,6 +469,7 @@ function paymentRows(data) {
       <tr>
         <td>${payment.store}</td>
         <td>${payment.vendor}</td>
+        <td>${payment.payment_item || "-"}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
@@ -479,6 +483,7 @@ function paymentReviewRows(data) {
       <tr>
         <td>${payment.store}</td>
         <td>${payment.vendor}</td>
+        <td>${payment.payment_item || "-"}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
@@ -587,6 +592,12 @@ function storeSuggestions(data) {
     .join("");
 }
 
+function paymentItemSuggestions(data) {
+  return data.paymentItems
+    .map((item) => `<option value="${escapeAttr(item)}">${escapeAttr(item)}</option>`)
+    .join("");
+}
+
 function paymentForm() {
   return `
     <article class="panel form-panel">
@@ -607,6 +618,13 @@ function paymentForm() {
           <datalist id="vendor-suggestions">
             <option value="직접입력">직접입력</option>
             ${vendorSuggestions(currentData)}
+          </datalist>
+        </label>
+        <label>결제 항목
+          <input name="payment_item" list="payment-item-suggestions" placeholder="직접입력 또는 공사항목 검색" autocomplete="off" />
+          <datalist id="payment-item-suggestions">
+            <option value="직접입력">직접입력</option>
+            ${paymentItemSuggestions(currentData)}
           </datalist>
         </label>
         <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
@@ -707,7 +725,7 @@ function dashboardView(data) {
           <h2>최근 결제 신청</h2>
           <button data-view-link="결제 신청">전체 보기</button>
         </div>
-        ${table(["매장", "업체", "금액", "상태", "신청일"], paymentRows(data))}
+        ${table(["매장", "업체", "항목", "금액", "상태", "신청일"], paymentRows(data))}
       </article>
 
       <article class="panel">
@@ -741,7 +759,7 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
         </div>
-        ${table(["매장", "업체", "금액", "상태", "신청일", "처리"], paymentReviewRows(data))}
+        ${table(["매장", "업체", "항목", "금액", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
   `;
