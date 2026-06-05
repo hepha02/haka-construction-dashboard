@@ -124,6 +124,12 @@ const formatKRW = (value) =>
 
 const today = () => new Date().toISOString().slice(0, 10);
 const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
+const paymentRatio = (type) =>
+  ({
+    "일시 지급": 1,
+    "선금 50%": 0.5,
+    "잔금 50%": 0.5
+  })[type] || 0;
 const escapeAttr = (value) =>
   String(value || "")
     .replace(/&/g, "&amp;")
@@ -253,11 +259,14 @@ async function submitPayment(event) {
   const store = String(formData.get("store") || "").trim();
   const vendor = String(formData.get("vendor") || "").trim();
   const paymentItem = String(formData.get("payment_item") || "").trim();
+  const estimateTotal = parseAmount(formData.get("estimate_total"));
+  const paymentType = String(formData.get("payment_type") || "일시 지급");
   const amount = parseAmount(formData.get("amount"));
+  const memo = String(formData.get("memo") || "").trim();
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
 
-  if (!store || !vendor || !paymentItem || !amount) {
-    message.textContent = "매장명, 업체, 결제 항목, 신청 금액을 모두 입력해 주세요.";
+  if (!store || !vendor || !paymentItem || !estimateTotal || !amount) {
+    message.textContent = "매장명, 업체, 결제 항목, 견적 총액, 신청 금액을 모두 입력해 주세요.";
     message.className = "form-message error";
     return;
   }
@@ -273,7 +282,10 @@ async function submitPayment(event) {
     store,
     vendor,
     payment_item: paymentItem,
+    estimate_total: estimateTotal,
+    payment_type: paymentType,
     amount,
+    memo,
     status: "신청",
     requested_at: today()
   };
@@ -472,6 +484,17 @@ async function updatePaymentStatus(paymentId, status) {
   render(`결제 신청이 ${status} 처리됐습니다.`);
 }
 
+function syncPaymentAmount(form) {
+  const estimateInput = form.querySelector("[name='estimate_total']");
+  const typeInput = form.querySelector("[name='payment_type']");
+  const amountInput = form.querySelector("[name='amount']");
+  const ratio = paymentRatio(typeInput.value);
+  const estimateTotal = parseAmount(estimateInput.value);
+
+  if (!ratio || !estimateTotal) return;
+  amountInput.value = String(Math.round(estimateTotal * ratio));
+}
+
 function kpiData(data) {
   const completed = data.stores.filter((store) => store.status === "완료").length;
   const active = data.stores.filter((store) => store.status === "진행중").length;
@@ -515,6 +538,8 @@ function paymentRows(data) {
         <td>${payment.store}</td>
         <td>${payment.vendor}</td>
         <td>${payment.payment_item || "-"}</td>
+        <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
+        <td>${payment.payment_type || "일시 지급"}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
@@ -529,6 +554,8 @@ function paymentReviewRows(data) {
         <td>${payment.store}</td>
         <td>${payment.vendor}</td>
         <td>${payment.payment_item || "-"}</td>
+        <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
+        <td>${payment.payment_type || "일시 지급"}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
         <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
         <td>${payment.requested_at}</td>
@@ -672,7 +699,17 @@ function paymentForm() {
             ${paymentItemSuggestions(currentData)}
           </datalist>
         </label>
-        <label>신청 금액<input name="amount" inputmode="numeric" placeholder="예: 18500000" autocomplete="off" /></label>
+        <label>견적 총액, 부가세 포함<input name="estimate_total" inputmode="numeric" placeholder="예: 10000000" autocomplete="off" /></label>
+        <label>결제 방식
+          <select name="payment_type">
+            <option value="일시 지급">일시 지급</option>
+            <option value="선금 50%">선금 50%</option>
+            <option value="잔금 50%">잔금 50%</option>
+            <option value="직접 입력">직접 입력</option>
+          </select>
+        </label>
+        <label>이번 신청 금액<input name="amount" inputmode="numeric" placeholder="예: 5000000" autocomplete="off" /></label>
+        <label>메모<input name="memo" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">검토 요청 생성</button>
       </form>
@@ -770,7 +807,7 @@ function dashboardView(data) {
           <h2>최근 결제 신청</h2>
           <button data-view-link="결제 신청">전체 보기</button>
         </div>
-        ${table(["매장", "업체", "항목", "금액", "상태", "신청일"], paymentRows(data))}
+        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "상태", "신청일"], paymentRows(data))}
       </article>
 
       <article class="panel">
@@ -804,7 +841,7 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
         </div>
-        ${table(["매장", "업체", "항목", "금액", "상태", "신청일", "처리"], paymentReviewRows(data))}
+        ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "상태", "신청일", "처리"], paymentReviewRows(data))}
       </article>
     </section>
   `;
@@ -1128,7 +1165,11 @@ function render(notice = "") {
   });
 
   const paymentFormElement = document.querySelector("#payment-form");
-  if (paymentFormElement) paymentFormElement.addEventListener("submit", submitPayment);
+  if (paymentFormElement) {
+    paymentFormElement.addEventListener("submit", submitPayment);
+    paymentFormElement.querySelector("[name='estimate_total']")?.addEventListener("input", () => syncPaymentAmount(paymentFormElement));
+    paymentFormElement.querySelector("[name='payment_type']")?.addEventListener("change", () => syncPaymentAmount(paymentFormElement));
+  }
 
   const vendorFormElement = document.querySelector("#vendor-form");
   if (vendorFormElement) vendorFormElement.addEventListener("submit", submitVendor);

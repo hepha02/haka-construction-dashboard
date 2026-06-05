@@ -3,7 +3,10 @@ create table if not exists public.payments (
   store text not null,
   vendor text not null,
   payment_item text,
+  estimate_total bigint,
+  payment_type text not null default '일시 지급' check (payment_type in ('일시 지급', '선금 50%', '잔금 50%', '직접 입력')),
   amount bigint not null,
+  memo text,
   status text not null check (status in ('승인', '신청', '반려')),
   requested_at date not null default current_date
 );
@@ -133,9 +136,11 @@ with check (
   auth.role() = 'authenticated'
   and status = '신청'
   and amount > 0
+  and estimate_total > 0
   and length(trim(store)) > 0
   and length(trim(vendor)) > 0
   and length(trim(payment_item)) > 0
+  and payment_type in ('일시 지급', '선금 50%', '잔금 50%', '직접 입력')
 );
 
 create policy "authenticated insert construction starts"
