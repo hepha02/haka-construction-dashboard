@@ -137,6 +137,8 @@ const formatKRW = (value) =>
 const today = () => new Date().toISOString().slice(0, 10);
 const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
 const numberValue = (value) => Number(value || 0);
+const textLimit = (value, maxLength) => String(value || "").trim().slice(0, maxLength);
+const onlyDigits = (value) => String(value || "").replace(/[^\d]/g, "");
 const paymentRatio = (type) =>
   ({
     "일시 지급": 1,
@@ -170,7 +172,7 @@ async function loadData() {
   if (!supabase) return fallback;
 
   const [payments, stores, vendors, constructionStarts, userRoles, paymentItems] = await Promise.all([
-    supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(12),
+    supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(500),
     supabase.from("stores").select("*").order("id", { ascending: true }),
     supabase.from("vendors").select("*").order("id", { ascending: true }),
     supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30),
@@ -586,6 +588,114 @@ async function updatePaymentStatus(paymentId, status) {
   render(`결제 신청이 ${status} 처리됐습니다.`);
 }
 
+function normalizeBankName(bank) {
+  const clean = String(bank || "").replace(/\s/g, "");
+  const banks = [
+    ["신한", "신한"],
+    ["국민", "국민"],
+    ["기업", "기업"],
+    ["우리", "우리"],
+    ["하나", "하나"],
+    ["농협", "농협"],
+    ["축협", "농협"],
+    ["카카오", "카카오"],
+    ["토스", "토스"],
+    ["케이뱅크", "케이뱅크"],
+    ["부산", "부산"],
+    ["대구", "아이엠뱅크"],
+    ["아이엠", "아이엠뱅크"],
+    ["새마을", "새마을금고"],
+    ["신협", "신협"],
+    ["우체국", "우체국"],
+    ["전북", "전북"],
+    ["광주", "광주"],
+    ["경남", "경남"],
+    ["수협", "수협"]
+  ];
+  return banks.find(([keyword]) => clean.includes(keyword))?.[1] || textLimit(bank, 6);
+}
+
+function findVendor(data, payment) {
+  const vendorName = String(payment.vendor || "").trim();
+  return data.vendors.find((vendor) => String(vendor.name || "").trim() === vendorName) || {};
+}
+
+function approvedPayments(data) {
+  return data.payments.filter((payment) => payment.status === "승인");
+}
+
+function bankTransferRecord(data, payment) {
+  const vendor = findVendor(data, payment);
+  const holder = vendor.account_holder || payment.vendor;
+  const amount = Number(payment.net_amount || payment.amount || 0);
+  const memo = `${payment.store || ""} ${payment.payment_item || ""}`.trim();
+
+  return {
+    bank: normalizeBankName(vendor.bank),
+    account: onlyDigits(vendor.account_number),
+    holder,
+    amount,
+    withdrawMemo: "하카공사비",
+    depositMemo: textLimit(holder, 7),
+    payerCode: "",
+    memo: textLimit(memo, 10),
+    key: textLimit(`${payment.id || ""}-${payment.requested_at || today()}`, 20),
+    payment,
+    vendor,
+    ready: Boolean(vendor.bank && vendor.account_number && holder && amount > 0)
+  };
+}
+
+function bankTransferRecords(data) {
+  return approvedPayments(data).map((payment) => bankTransferRecord(data, payment));
+}
+
+function excelCell(value, style = "") {
+  return `<td${style ? ` style="${style}"` : ""}>${escapeAttr(value)}</td>`;
+}
+
+function downloadBankTransferFile(data) {
+  const readyRecords = bankTransferRecords(data).filter((record) => record.ready);
+  if (!readyRecords.length) {
+    render("다운로드할 승인 완료 건이 없거나, 업체 계좌정보가 비어 있습니다.");
+    return;
+  }
+
+  const headers = ["*입금은행", "*입금계좌", "고객관리성명", "*입금액", "출금통장표시내용", "입금통장표시내용", "입금인코드", "비고", "업체사용key"];
+  const rows = readyRecords.map((record) => [
+    record.bank,
+    record.account,
+    record.holder,
+    record.amount,
+    record.withdrawMemo,
+    record.depositMemo,
+    record.payerCode,
+    record.memo,
+    record.key
+  ]);
+  const tableRows = [
+    `<tr>${headers.map((header) => excelCell(header)).join("")}</tr>`,
+    ...rows.map((row) => `<tr>${row.map((cell, index) => excelCell(cell, index === 1 ? "mso-number-format:'\\@';" : "")).join("")}</tr>`)
+  ];
+  const workbook = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+      <head>
+        <meta charset="UTF-8" />
+        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>입력정보</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+      </head>
+      <body><table>${tableRows.join("")}</table></body>
+    </html>`;
+  const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `은행대량이체_${today()}.xls`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function syncPaymentAmount(form) {
   const estimateInput = form.querySelector("[name='estimate_total']");
   const typeInput = form.querySelector("[name='payment_type']");
@@ -694,6 +804,22 @@ function paymentReviewRows(data) {
               : `<span class="muted">처리 완료</span>`
           }
         </td>
+      </tr>`
+  );
+}
+
+function bankTransferRows(data) {
+  return bankTransferRecords(data).map(
+    (record) => `
+      <tr>
+        <td>${record.payment.store}</td>
+        <td>${record.payment.vendor}</td>
+        <td>${record.bank || "-"}</td>
+        <td>${record.account || "-"}</td>
+        <td>${record.holder || "-"}</td>
+        <td class="money">${formatKRW(record.amount)}</td>
+        <td>${record.payment.tax_type || "일반 송금"}</td>
+        <td><span class="badge ${record.ready ? "green" : "red"}">${record.ready ? "다운로드 가능" : "계좌정보 확인"}</span></td>
       </tr>`
   );
 }
@@ -988,15 +1114,63 @@ function dashboardView(data) {
 }
 
 function paymentView(data) {
+  const readyTransferCount = bankTransferRecords(data).filter((record) => record.ready).length;
   return `
     <section class="grid two">
       ${paymentForm()}
       <article class="panel">
         <div class="panel-head">
           <h2>결제 신청 검토</h2>
-          <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
+          <div class="row-actions">
+            <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
+            <button data-bank-transfer-download>이체 파일 ${readyTransferCount}건</button>
+          </div>
         </div>
         ${table(["매장", "업체", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data))}
+      </article>
+    </section>
+  `;
+}
+
+function bankTransferView(data) {
+  const records = bankTransferRecords(data);
+  const readyCount = records.filter((record) => record.ready).length;
+  const totalAmount = records
+    .filter((record) => record.ready)
+    .reduce((sum, record) => sum + record.amount, 0);
+
+  return `
+    <section class="grid two">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>은행 대량이체 파일</h2>
+          <button class="primary" data-bank-transfer-download>엑셀 다운로드</button>
+        </div>
+        <div class="notice">승인된 결제건만 이체 파일에 들어갑니다. 사업소득 3.3% 건은 원천징수 후 실지급액으로 내려받습니다.</div>
+        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "입금액", "지급 유형", "상태"], bankTransferRows(data))}
+      </article>
+      <article class="panel">
+        <div class="panel-head">
+          <h2>다운로드 요약</h2>
+          <button>${readyCount}건 가능</button>
+        </div>
+        <section class="kpis compact-kpis">
+          <article class="kpi">
+            <span>승인 건</span>
+            <strong>${records.length}건</strong>
+            <small>결제 상태가 승인인 건</small>
+          </article>
+          <article class="kpi">
+            <span>다운로드 가능</span>
+            <strong>${readyCount}건</strong>
+            <small>은행/계좌/예금주 확인 완료</small>
+          </article>
+          <article class="kpi">
+            <span>총 이체액</span>
+            <strong>${formatKRW(totalAmount)}</strong>
+            <small>실지급액 기준</small>
+          </article>
+        </section>
       </article>
     </section>
   `;
@@ -1181,6 +1355,7 @@ function activeContent(data) {
   if (activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
   if (activeView === "진열장 원가 배분") return furnitureAllocationView(data);
+  if (activeView === "은행 이체 파일 생성") return bankTransferView(data);
   if (activeView === "관리자 설정") return adminSettingsView(data);
   return placeholderView(activeView);
 }
@@ -1409,6 +1584,10 @@ function render(notice = "") {
 
   const constructionStartFormElement = document.querySelector("#construction-start-form");
   if (constructionStartFormElement) constructionStartFormElement.addEventListener("submit", submitConstructionStart);
+
+  document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
+    button.addEventListener("click", () => downloadBankTransferFile(currentData));
+  });
 
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
     button.addEventListener("click", () => {
