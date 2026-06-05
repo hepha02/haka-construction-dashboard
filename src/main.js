@@ -11,6 +11,51 @@ const supabase =
     ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 const CONSTRUCTION_FILE_BUCKET = "construction-start-files";
+const basePaymentItems = [
+  "철거",
+  "금속공사",
+  "목작업",
+  "목자재",
+  "전기",
+  "전기자재",
+  "간판",
+  "임시간판",
+  "돌출간판",
+  "실내광고외",
+  "광고 시트",
+  "자판기 유리작업",
+  "자동문 /강화도어",
+  "자동문",
+  "강화도어",
+  "페인트자재",
+  "도장공사",
+  "타일자재",
+  "타일 부자재",
+  "타일시공",
+  "타일",
+  "싱크 개수대",
+  "설비",
+  "진열장",
+  "카운터 역채널",
+  "인조대리석",
+  "유리/무늬목작접등 기타잡비",
+  "유리",
+  "무늬목",
+  "기타잡비",
+  "스카이",
+  "에어컨",
+  "소방설비",
+  "가구운송",
+  "엠프",
+  "오픈현수막",
+  "열쇠/철물",
+  "열쇠",
+  "철물",
+  "청소",
+  "폐기물",
+  "추가공사",
+  "기타"
+];
 
 const fallback = {
   payments: [],
@@ -26,7 +71,7 @@ const fallback = {
     { id: 3, name: "서진설비", category: "설비", bank: "하나은행", account_number: "352-000-000003", account_holder: "서진설비", risk: "증빙확인", total: 41200000 }
   ],
   userRoles: [],
-  paymentItems: [],
+  paymentItems: basePaymentItems,
   constructionStarts: []
 };
 
@@ -114,7 +159,7 @@ async function loadData() {
   ]);
   const uniquePaymentItems = paymentItems.error
     ? fallback.paymentItems
-    : [...new Set(paymentItems.data.map((item) => item.part_name).filter(Boolean))];
+    : [...new Set([...basePaymentItems, ...paymentItems.data.map((item) => item.part_name).filter(Boolean)])];
 
   return {
     payments: payments.error ? fallback.payments : payments.data,
