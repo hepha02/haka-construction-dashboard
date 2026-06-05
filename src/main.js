@@ -10,6 +10,7 @@ const supabase =
   SUPABASE_URL && SUPABASE_ANON_KEY
     ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
+const CONSTRUCTION_FILE_BUCKET = "construction-start-files";
 
 const fallback = {
   payments: [
@@ -87,6 +88,7 @@ const escapeAttr = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+const safeFileName = (name) => String(name || "file").replace(/[^\w.\-가-힣]/g, "_");
 
 const statusClass = (status) => {
   const map = {
@@ -161,6 +163,35 @@ function findDuplicateRisk(data, vendor, amount) {
     const diffRate = Math.abs(payment.amount - amount) / Math.max(amount, 1);
     return sameVendor && diffRate <= 0.1;
   });
+}
+
+async function uploadConstructionFiles(fileList, folder) {
+  const files = Array.from(fileList || []).filter((file) => file.size > 0);
+  if (!files.length) return [];
+
+  if (!supabase) {
+    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
+  }
+
+  const uploaded = [];
+  for (const file of files) {
+    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
+    const { error } = await supabase.storage
+      .from(CONSTRUCTION_FILE_BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+
+    if (error) throw error;
+
+    const { data } = supabase.storage.from(CONSTRUCTION_FILE_BUCKET).getPublicUrl(path);
+    uploaded.push({
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      path,
+      url: data.publicUrl
+    });
+  }
+  return uploaded;
 }
 
 async function submitPayment(event) {
@@ -316,11 +347,9 @@ async function submitConstructionStart(event) {
   const request = {
     store_name: String(formData.get("store_name") || "").trim(),
     area: Number(formData.get("area")),
-    drawing_note: String(formData.get("drawing_note") || "").trim(),
     fixture_count: Number(formData.get("fixture_count") || 0),
     table_count: Number(formData.get("table_count") || 0),
     sign_count: Number(formData.get("sign_count") || 0),
-    base_photo_note: String(formData.get("base_photo_note") || "").trim(),
     special_notes: String(formData.get("special_notes") || "").trim()
   };
 
@@ -332,8 +361,21 @@ async function submitConstructionStart(event) {
 
   submitButton.disabled = true;
   submitButton.textContent = "저장 중";
-  message.textContent = "공사 시작 정보를 저장하고 있습니다.";
+  message.textContent = "도면과 사진 파일을 업로드하고 있습니다.";
   message.className = "form-message";
+
+  try {
+    request.drawing_files = await uploadConstructionFiles(formData.getAll("drawing_files"), "drawings");
+    request.base_photo_files = await uploadConstructionFiles(formData.getAll("base_photo_files"), "base-photos");
+  } catch (error) {
+    submitButton.disabled = false;
+    submitButton.textContent = "공사 시작 정보 저장";
+    message.textContent = `파일 업로드 실패: ${error.message}`;
+    message.className = "form-message error";
+    return;
+  }
+
+  message.textContent = "공사 시작 정보를 저장하고 있습니다.";
 
   if (!supabase) {
     fallback.constructionStarts = [{ id: Date.now(), created_at: new Date().toISOString(), ...request }, ...fallback.constructionStarts];
@@ -466,6 +508,19 @@ function storeRows(data) {
   );
 }
 
+function fileLinks(files, fallbackText = "") {
+  const parsedFiles = Array.isArray(files) ? files : [];
+  if (!parsedFiles.length) return fallbackText || "-";
+
+  return parsedFiles
+    .map((file) =>
+      file.url
+        ? `<a href="${escapeAttr(file.url)}" target="_blank" rel="noreferrer">${escapeAttr(file.name || "파일")}</a>`
+        : `<span>${escapeAttr(file.name || "파일")}</span>`
+    )
+    .join("<br />");
+}
+
 function constructionStartRows(data) {
   return data.constructionStarts.map(
     (item) => `
@@ -475,8 +530,8 @@ function constructionStartRows(data) {
         <td>${item.fixture_count || 0}</td>
         <td>${item.table_count || 0}</td>
         <td>${item.sign_count || 0}</td>
-        <td>${item.drawing_note || "-"}</td>
-        <td>${item.base_photo_note || "-"}</td>
+        <td>${fileLinks(item.drawing_files, item.drawing_note)}</td>
+        <td>${fileLinks(item.base_photo_files, item.base_photo_note)}</td>
         <td>${item.special_notes || "-"}</td>
       </tr>`
   );
@@ -615,11 +670,11 @@ function constructionStartForm() {
       <form id="construction-start-form">
         <label>매장명<input name="store_name" placeholder="예: 강남압구정 직영점" autocomplete="off" /></label>
         <label>평수<input name="area" inputmode="numeric" placeholder="예: 45" autocomplete="off" /></label>
-        <label>도면<input name="drawing_note" placeholder="도면 파일명 또는 링크" autocomplete="off" /></label>
+        <label>도면 파일<input name="drawing_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>필요한 진열장 수<input name="fixture_count" inputmode="numeric" placeholder="예: 8" autocomplete="off" /></label>
         <label>필요한 테이블 수<input name="table_count" inputmode="numeric" placeholder="예: 3" autocomplete="off" /></label>
         <label>광고판 갯수<input name="sign_count" inputmode="numeric" placeholder="예: 2" autocomplete="off" /></label>
-        <label>매장 기초 사진<input name="base_photo_note" placeholder="사진 파일명 또는 링크" autocomplete="off" /></label>
+        <label>매장 기초 사진<input name="base_photo_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>특이사항<textarea name="special_notes" placeholder="현장 특이사항, 요청사항, 주의할 점"></textarea></label>
         <p class="form-message" data-construction-start-message></p>
         <button class="primary wide" type="submit">공사 시작 정보 저장</button>
