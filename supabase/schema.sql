@@ -81,7 +81,7 @@ values (
   'construction-start-files',
   true,
   20971520,
-  array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
+  null
 )
 on conflict (id) do update
 set public = excluded.public,
