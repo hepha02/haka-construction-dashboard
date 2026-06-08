@@ -604,14 +604,159 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  body {
+    background: #f4f6f8;
+  }
+
   .shell {
-    padding: 18px;
+    padding: 14px;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 12px 12px 10px;
+    border-right: 0;
+    border-bottom: 1px solid #e4e8ee;
+    background: rgba(255, 255, 255, 0.98);
+  }
+
+  .brand {
+    margin-bottom: 10px;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+  }
+
+  .brand small {
+    font-size: 11px;
   }
 
   .topbar,
   .actions {
     align-items: stretch;
     flex-direction: column;
+    gap: 10px;
+  }
+
+  .topbar {
+    margin-bottom: 14px;
+  }
+
+  .topbar h1 {
+    font-size: 26px;
+  }
+
+  .actions button,
+  .panel-head button,
+  .wide,
+  .session-box button {
+    min-height: 44px;
+  }
+
+  .session-box {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    width: 100%;
+  }
+
+  .session-box span {
+    max-width: none;
+    grid-column: 1 / -1;
+  }
+
+  nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  nav button {
+    flex: 0 0 auto;
+    width: auto;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid #e2e7ee;
+    background: #ffffff;
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  nav button.active {
+    border-color: #b9d8cd;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .panel h2 {
+    font-size: 17px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  input[type="file"] {
+    min-height: auto;
+    padding: 10px;
+  }
+
+  .calc-box {
+    grid-template-columns: 1fr;
+  }
+
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .row-actions button {
+    min-height: 38px;
+  }
+
+  .table-wrap {
+    margin-right: -14px;
+    margin-left: -14px;
+    padding: 0 14px;
+  }
+
+  table {
+    min-width: 760px;
+  }
+
+  th,
+  td {
+    padding: 11px 8px;
+  }
+
+  .auth-page {
+    align-items: start;
+    padding: 16px;
+  }
+
+  .auth-panel {
+    padding: 22px;
   }
 
   nav,
