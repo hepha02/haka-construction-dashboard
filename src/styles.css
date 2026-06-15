@@ -530,6 +530,40 @@ button:disabled {
   background: #fee8e6;
 }
 
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px;
+  border: 1px solid #d9e7e2;
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.check-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  color: #344154;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.check-control.compact {
+  min-height: 30px;
+  padding: 0 4px;
+}
+
+.check-control input {
+  width: 18px;
+  height: 18px;
+  accent-color: #237c63;
+}
+
 .transfer-download-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

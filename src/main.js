@@ -650,14 +650,23 @@ async function updatePaymentStatus(paymentId, status) {
       payment.id === paymentId ? { ...payment, status } : payment
     );
   } else {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("payments")
       .update({ status })
       .eq("id", paymentId)
-      .eq("status", "신청");
+      .eq("status", "신청")
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       render(`상태 변경 실패: ${error.message}`);
+      return;
+    }
+
+    if (!data) {
+      currentData = await loadData();
+      activeView = "결제 신청";
+      render("상태 변경 실패: 이미 처리됐거나 권한이 없습니다. 새로고침 후 다시 확인해 주세요.");
       return;
     }
   }
@@ -665,6 +674,40 @@ async function updatePaymentStatus(paymentId, status) {
   currentData = await loadData();
   activeView = "결제 신청";
   render(`결제 신청이 ${status} 처리됐습니다.`);
+}
+
+async function approveSelectedPayments(paymentIds) {
+  const ids = [...new Set(paymentIds.map(Number).filter(Boolean))];
+  if (!ids.length) {
+    render("승인할 결제 신청을 먼저 선택해 주세요.");
+    return;
+  }
+
+  if (!supabase) {
+    fallback.payments = fallback.payments.map((payment) =>
+      ids.includes(payment.id) && payment.status === "신청" ? { ...payment, status: "승인" } : payment
+    );
+    currentData = await loadData();
+    activeView = "결제 신청";
+    render(`${ids.length}건을 승인 처리했습니다.`);
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("payments")
+    .update({ status: "승인" })
+    .in("id", ids)
+    .eq("status", "신청")
+    .select("id");
+
+  if (error) {
+    render(`선택 승인 실패: ${error.message}`);
+    return;
+  }
+
+  currentData = await loadData();
+  activeView = "결제 신청";
+  render(`${data?.length || 0}건을 승인 처리했습니다. 이제 엑셀 다운로드를 누르면 승인된 건이 내려갑니다.`);
 }
 
 async function saveStoreQuote(storeName, status) {
@@ -932,7 +975,7 @@ function paymentRows(data) {
   );
 }
 
-function paymentReviewRows(data) {
+function paymentReviewRows(data, canApprove = false) {
   return data.payments.map(
     (payment) => `
       <tr>
@@ -954,11 +997,17 @@ function paymentReviewRows(data) {
         <td>${payment.requested_at}</td>
         <td>
           ${
-            payment.status === "신청"
+            payment.status === "신청" && canApprove
               ? `<div class="row-actions">
+                  <label class="check-control compact">
+                    <input type="checkbox" class="payment-select" value="${payment.id}" />
+                    선택
+                  </label>
                   <button data-payment-id="${payment.id}" data-payment-status="승인">승인</button>
                   <button data-payment-id="${payment.id}" data-payment-status="반려">반려</button>
                 </div>`
+              : payment.status === "신청"
+                ? `<span class="muted">승인 대기</span>`
               : `<span class="muted">처리 완료</span>`
           }
         </td>
@@ -1366,6 +1415,7 @@ function dashboardView(data) {
 
 function paymentView(data) {
   const canDownloadTransfer = visibleNav().includes("은행 이체 파일 생성");
+  const pendingCount = data.payments.filter((payment) => payment.status === "신청").length;
   const approvedCount = approvedPayments(data).length;
   const readyTransferCount = bankTransferRecords(data).filter((record) => record.ready).length;
   const readyTransferAmount = bankTransferRecords(data)
@@ -1379,11 +1429,23 @@ function paymentView(data) {
         <div class="panel-head">
           <h2>결제 신청 검토</h2>
           <div class="row-actions">
-            <button>승인 대기 ${data.payments.filter((payment) => payment.status === "신청").length}건</button>
+            <button>승인 대기 ${pendingCount}건</button>
             ${canDownloadTransfer ? `<button data-bank-transfer-download>이체 파일 ${readyTransferCount}건</button>` : ""}
           </div>
         </div>
-        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data))}
+        ${
+          canDownloadTransfer
+            ? `<div class="bulk-actions">
+                <label class="check-control">
+                  <input type="checkbox" data-select-pending-payments />
+                  승인대기 전체 선택
+                </label>
+                <button class="primary" data-approve-selected-payments>선택 승인</button>
+                <button data-bank-transfer-download>승인건 엑셀 다운로드</button>
+              </div>`
+            : ""
+        }
+        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data, canDownloadTransfer))}
       </article>
     </section>
     ${
@@ -1869,6 +1931,17 @@ function render(notice = "") {
 
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
     button.addEventListener("click", () => downloadBankTransferFile(currentData));
+  });
+
+  document.querySelector("[data-select-pending-payments]")?.addEventListener("change", (event) => {
+    document.querySelectorAll(".payment-select").forEach((checkbox) => {
+      checkbox.checked = event.currentTarget.checked;
+    });
+  });
+
+  document.querySelector("[data-approve-selected-payments]")?.addEventListener("click", () => {
+    const paymentIds = [...document.querySelectorAll(".payment-select:checked")].map((checkbox) => checkbox.value);
+    approveSelectedPayments(paymentIds);
   });
 
   document.querySelectorAll("[data-quote-finalize]").forEach((button) => {
