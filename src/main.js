@@ -816,32 +816,37 @@ function bankTransferRecord(data, payment) {
   };
 }
 
-function bankTransferRecords(data) {
-  return approvedPayments(data).map((payment) => bankTransferRecord(data, payment));
+function isWithinDateRange(dateValue, startDate, endDate) {
+  const date = String(dateValue || "").slice(0, 10);
+  if (!date) return false;
+  if (startDate && date < startDate) return false;
+  if (endDate && date > endDate) return false;
+  return true;
+}
+
+function bankTransferRecords(data, filters = {}) {
+  return approvedPayments(data)
+    .filter((payment) => isWithinDateRange(payment.requested_at, filters.startDate, filters.endDate))
+    .map((payment) => bankTransferRecord(data, payment));
 }
 
 function excelCell(value, style = "") {
   return `<td${style ? ` style="${style}"` : ""}>${escapeAttr(value)}</td>`;
 }
 
-function downloadBankTransferFile(data) {
-  const readyRecords = bankTransferRecords(data).filter((record) => record.ready);
+function downloadBankTransferFile(data, filters = {}) {
+  const readyRecords = bankTransferRecords(data, filters).filter((record) => record.ready);
   if (!readyRecords.length) {
     render("다운로드할 승인 완료 건이 없거나, 업체 계좌정보가 비어 있습니다.");
     return;
   }
 
-  const headers = ["*입금은행", "*입금계좌", "고객관리성명", "*입금액", "출금통장표시내용", "입금통장표시내용", "입금인코드", "비고", "업체사용key"];
+  const headers = ["*입금은행", "*입금계좌", "*입금액", "고객관리성명"];
   const rows = readyRecords.map((record) => [
     record.bank,
     record.account,
-    record.holder,
     record.amount,
-    record.withdrawMemo,
-    record.depositMemo,
-    record.payerCode,
-    record.memo,
-    record.key
+    record.holder
   ]);
   const tableRows = [
     `<tr>${headers.map((header) => excelCell(header)).join("")}</tr>`,
@@ -859,7 +864,8 @@ function downloadBankTransferFile(data) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `은행대량이체_${today()}.xls`;
+  const period = filters.startDate || filters.endDate ? `_${filters.startDate || "처음"}_${filters.endDate || "오늘"}` : "";
+  link.download = `은행대량이체${period}_${today()}.xls`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -1543,6 +1549,12 @@ function bankTransferView(data) {
           <button class="primary" data-bank-transfer-download>엑셀 다운로드</button>
         </div>
         <div class="notice">승인된 결제건만 이체 파일에 들어갑니다. 사업소득 3.3% 건은 원천징수 후 실지급액으로 내려받습니다.</div>
+        <div class="date-filter">
+          <label>시작일<input type="date" data-transfer-start /></label>
+          <label>종료일<input type="date" data-transfer-end /></label>
+          <button class="primary" data-bank-transfer-download="range">선택 기간 엑셀 다운로드</button>
+          <button data-bank-transfer-download>전체 승인건 다운로드</button>
+        </div>
         ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "입금액", "지급 유형", "상태"], bankTransferRows(data))}
       </article>
       <article class="panel">
@@ -1988,7 +2000,19 @@ function render(notice = "") {
   if (constructionStartFormElement) constructionStartFormElement.addEventListener("submit", submitConstructionStart);
 
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
-    button.addEventListener("click", () => downloadBankTransferFile(currentData));
+    button.addEventListener("click", () => {
+      const useRange = button.dataset.bankTransferDownload === "range";
+      const panel = button.closest(".panel") || document;
+      downloadBankTransferFile(
+        currentData,
+        useRange
+          ? {
+              startDate: panel.querySelector("[data-transfer-start]")?.value || "",
+              endDate: panel.querySelector("[data-transfer-end]")?.value || ""
+            }
+          : {}
+      );
+    });
   });
 
   document.querySelector("[data-select-pending-payments]")?.addEventListener("change", (event) => {
