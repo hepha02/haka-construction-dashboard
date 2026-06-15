@@ -564,6 +564,136 @@ button:disabled {
   accent-color: #237c63;
 }
 
+.payment-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.payment-review-card {
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.payment-review-card summary {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, auto);
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.payment-review-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.payment-review-card summary::after {
+  content: "펼치기";
+  justify-self: end;
+  grid-column: 2;
+  color: #237c63;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.payment-review-card[open] summary::after {
+  content: "접기";
+}
+
+.payment-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.payment-summary-main input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  accent-color: #237c63;
+}
+
+.payment-summary-main div,
+.payment-summary-meta {
+  min-width: 0;
+}
+
+.payment-summary-main strong,
+.payment-summary-main span,
+.payment-summary-meta span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payment-summary-main strong {
+  color: #162033;
+  font-size: 14px;
+}
+
+.payment-summary-main span {
+  margin-top: 3px;
+  color: #667386;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.payment-summary-meta {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.payment-summary-meta strong {
+  color: #162033;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.payment-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 14px 14px;
+}
+
+.payment-detail-grid div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f7faf9;
+}
+
+.payment-detail-grid span {
+  display: block;
+  margin-bottom: 4px;
+  color: #7a8597;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.payment-detail-grid strong {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #162033;
+  font-size: 13px;
+}
+
+.payment-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
 .transfer-download-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -767,6 +897,32 @@ button:disabled {
 
   .row-actions button {
     min-height: 38px;
+  }
+
+  .payment-review-card summary,
+  .payment-summary-meta,
+  .payment-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .payment-review-card summary::after {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .payment-summary-meta {
+    gap: 6px;
+  }
+
+  .payment-summary-meta span,
+  .payment-summary-main strong,
+  .payment-summary-main span {
+    white-space: normal;
+  }
+
+  .payment-detail-actions {
+    justify-content: stretch;
+    flex-direction: column;
   }
 
   .table-wrap {

@@ -1015,6 +1015,64 @@ function paymentReviewRows(data, canApprove = false) {
   );
 }
 
+function paymentReviewCards(data, canApprove = false) {
+  if (!data.payments.length) return `<div class="empty">표시할 결제 신청이 없습니다.</div>`;
+
+  return `
+    <div class="payment-review-list">
+      ${data.payments
+        .map(
+          (payment) => `
+            <details class="payment-review-card">
+              <summary>
+                <div class="payment-summary-main">
+                  ${
+                    payment.status === "신청" && canApprove
+                      ? `<input type="checkbox" class="payment-select" value="${payment.id}" aria-label="${escapeAttr(payment.store)} 선택" />`
+                      : ""
+                  }
+                  <div>
+                    <strong>${payment.store}</strong>
+                    <span>${payment.vendor}</span>
+                  </div>
+                </div>
+                <div class="payment-summary-meta">
+                  <span>${payment.payment_item || "-"}</span>
+                  <strong>${formatKRW(payment.net_amount || payment.amount)}</strong>
+                  <span class="badge ${statusClass(payment.status)}">${payment.status}</span>
+                </div>
+              </summary>
+              <div class="payment-detail-grid">
+                <div><span>입금은행</span><strong>${payment.vendor_bank || "-"}</strong></div>
+                <div><span>입금계좌</span><strong>${payment.vendor_account_number || "-"}</strong></div>
+                <div><span>예금주</span><strong>${payment.vendor_account_holder || "-"}</strong></div>
+                <div><span>견적 총액</span><strong>${formatKRW(payment.estimate_total || payment.amount)}</strong></div>
+                <div><span>결제 방식</span><strong>${payment.payment_type || "일시 지급"}</strong></div>
+                <div><span>이번 신청액</span><strong>${formatKRW(payment.amount)}</strong></div>
+                <div><span>지급 유형</span><strong>${payment.tax_type || "일반 송금"}</strong></div>
+                <div><span>원천징수</span><strong>${formatKRW(payment.withholding_amount || 0)}</strong></div>
+                <div><span>실지급액</span><strong>${formatKRW(payment.net_amount || payment.amount)}</strong></div>
+                <div><span>첨부 자료</span><strong>${paymentAttachmentSummary(payment)}</strong></div>
+                <div><span>견적서 반영</span><strong>${payment.estimate_group_mode || "매장별 항목 합산"}</strong></div>
+                <div><span>신청일</span><strong>${payment.requested_at}</strong></div>
+              </div>
+              <div class="payment-detail-actions">
+                ${
+                  payment.status === "신청" && canApprove
+                    ? `<button class="primary" data-payment-id="${payment.id}" data-payment-status="승인">승인</button>
+                       <button data-payment-id="${payment.id}" data-payment-status="반려">반려</button>`
+                    : payment.status === "신청"
+                      ? `<span class="muted">승인 대기</span>`
+                      : `<span class="muted">처리 완료</span>`
+                }
+              </div>
+            </details>`
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function bankTransferRows(data) {
   return bankTransferRecords(data).map(
     (record) => `
@@ -1445,7 +1503,7 @@ function paymentView(data) {
               </div>`
             : ""
         }
-        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일", "처리"], paymentReviewRows(data, canDownloadTransfer))}
+        ${paymentReviewCards(data, canDownloadTransfer)}
       </article>
     </section>
     ${
@@ -1937,6 +1995,10 @@ function render(notice = "") {
     document.querySelectorAll(".payment-select").forEach((checkbox) => {
       checkbox.checked = event.currentTarget.checked;
     });
+  });
+
+  document.querySelectorAll(".payment-select").forEach((checkbox) => {
+    checkbox.addEventListener("click", (event) => event.stopPropagation());
   });
 
   document.querySelector("[data-approve-selected-payments]")?.addEventListener("click", () => {
