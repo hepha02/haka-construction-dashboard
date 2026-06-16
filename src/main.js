@@ -585,17 +585,27 @@ async function submitConstructionStart(event) {
   const submitButton = form.querySelector("button[type='submit']");
   const message = form.querySelector("[data-construction-start-message]");
   const formData = new FormData(form);
-  const wallCabinetCount = numberValue(formData.get("wall_cabinet_count"));
+  const wallUpperCount = numberValue(formData.get("wall_upper_count"));
+  const wallLowerCount = numberValue(formData.get("wall_lower_count"));
   const displayFixtureCount = numberValue(formData.get("display_fixture_count"));
-  const counterCount = numberValue(formData.get("counter_count"));
+  const counterDrawer1200Count = numberValue(formData.get("counter_drawer_1200_count"));
+  const counterShelf1800Count = numberValue(formData.get("counter_shelf_1800_count"));
+  const counterShelf1600Count = numberValue(formData.get("counter_shelf_1600_count"));
+  const counterCount = counterDrawer1200Count + counterShelf1800Count + counterShelf1600Count;
+  const tableCount = Number(formData.get("table_count") || 0);
   const request = {
     store_name: String(formData.get("store_name") || "").trim(),
     area: Number(formData.get("area")),
-    wall_cabinet_count: wallCabinetCount,
+    wall_upper_count: wallUpperCount,
+    wall_lower_count: wallLowerCount,
+    counter_drawer_1200_count: counterDrawer1200Count,
+    counter_shelf_1800_count: counterShelf1800Count,
+    counter_shelf_1600_count: counterShelf1600Count,
+    wall_cabinet_count: wallUpperCount + wallLowerCount,
     display_fixture_count: displayFixtureCount,
     counter_count: counterCount,
-    fixture_count: wallCabinetCount + displayFixtureCount + counterCount,
-    table_count: Number(formData.get("table_count") || 0),
+    fixture_count: wallUpperCount + wallLowerCount + displayFixtureCount + counterCount,
+    table_count: tableCount,
     sign_count: Number(formData.get("sign_count") || 0),
     special_notes: String(formData.get("special_notes") || "").trim()
   };
@@ -1104,6 +1114,15 @@ function constructionStartForStore(data, storeName) {
   return data.constructionStarts.find((item) => item.store_name === storeName) || {};
 }
 
+function furnitureItemUnit(group, nameIncludes) {
+  const item = furnitureCostItems.find((entry) => {
+    const sameGroup = entry.group === group;
+    const sameName = nameIncludes.every((keyword) => entry.name.includes(keyword));
+    return sameGroup && sameName;
+  });
+  return item ? furnitureAverage(item) : 0;
+}
+
 function approvedDirectCost(data, storeName) {
   return data.payments
     .filter((payment) => {
@@ -1118,14 +1137,23 @@ function approvedDirectCost(data, storeName) {
 
 function fixtureCostForStore(data, storeName) {
   const start = constructionStartForStore(data, storeName);
-  const wallUnit = furnitureGroupUnit("벽장");
-  const displayUnit = furnitureGroupUnit("진열장");
-  const counterUnit = furnitureGroupUnit("카운터");
-  const wallCount = numberValue(start.wall_cabinet_count);
+  const upperCount = numberValue(start.wall_upper_count ?? start.wall_cabinet_count);
+  const lowerCount = numberValue(start.wall_lower_count);
   const displayCount = numberValue(start.display_fixture_count ?? start.fixture_count);
-  const counterCount = numberValue(start.counter_count);
+  const counterDrawer1200Count = numberValue(start.counter_drawer_1200_count ?? start.counter_count);
+  const counterShelf1800Count = numberValue(start.counter_shelf_1800_count);
+  const counterShelf1600Count = numberValue(start.counter_shelf_1600_count);
+  const tableCount = numberValue(start.table_count);
 
-  return wallCount * wallUnit + displayCount * displayUnit + counterCount * counterUnit;
+  return (
+    upperCount * furnitureItemUnit("벽장", ["상부장"]) +
+    lowerCount * furnitureItemUnit("벽장", ["하부장"]) +
+    displayCount * furnitureItemUnit("진열장", ["유리장"]) +
+    counterDrawer1200Count * furnitureItemUnit("카운터", ["서랍형", "1200"]) +
+    counterShelf1800Count * furnitureItemUnit("카운터", ["선반형", "1800"]) +
+    counterShelf1600Count * furnitureItemUnit("카운터", ["선반형", "1600"]) +
+    tableCount * furnitureItemUnit("테이블", ["600*1200"])
+  );
 }
 
 function allManagedStoreNames(data) {
@@ -1223,9 +1251,12 @@ function constructionStartRows(data) {
       <tr>
         <td>${item.store_name}</td>
         <td>${item.area}평</td>
-        <td>${item.wall_cabinet_count ?? 0}</td>
+        <td>${item.wall_upper_count ?? item.wall_cabinet_count ?? 0}</td>
+        <td>${item.wall_lower_count ?? 0}</td>
         <td>${item.display_fixture_count ?? item.fixture_count ?? 0}</td>
-        <td>${item.counter_count ?? 0}</td>
+        <td>${item.counter_drawer_1200_count ?? item.counter_count ?? 0}</td>
+        <td>${item.counter_shelf_1800_count ?? 0}</td>
+        <td>${item.counter_shelf_1600_count ?? 0}</td>
         <td>${item.table_count || 0}</td>
         <td>${item.sign_count || 0}</td>
         <td>${fileLinks(item.drawing_files, item.drawing_note)}</td>
@@ -1418,10 +1449,13 @@ function constructionStartForm() {
         <label>매장명<input name="store_name" placeholder="예: 강남압구정 직영점" autocomplete="off" /></label>
         <label>평수<input name="area" inputmode="numeric" placeholder="예: 45" autocomplete="off" /></label>
         <label>도면 파일<input name="drawing_files" type="file" accept="image/*,application/pdf,.pdf,.heic,.heif,.dwg,.dxf" multiple /></label>
-        <label>벽장 수<input name="wall_cabinet_count" inputmode="numeric" placeholder="예: 4" autocomplete="off" /></label>
-        <label>진열장 수<input name="display_fixture_count" inputmode="numeric" placeholder="예: 8" autocomplete="off" /></label>
-        <label>카운터 수<input name="counter_count" inputmode="numeric" placeholder="예: 2" autocomplete="off" /></label>
-        <label>필요한 테이블 수<input name="table_count" inputmode="numeric" placeholder="예: 3" autocomplete="off" /></label>
+        <label>벽장 / 상부장<input name="wall_upper_count" inputmode="numeric" placeholder="예: 4" autocomplete="off" /></label>
+        <label>벽장 / 하부장<input name="wall_lower_count" inputmode="numeric" placeholder="예: 4" autocomplete="off" /></label>
+        <label>진열장 / 유리장<input name="display_fixture_count" inputmode="numeric" placeholder="예: 8" autocomplete="off" /></label>
+        <label>카운터 / 서랍형 1200<input name="counter_drawer_1200_count" inputmode="numeric" placeholder="예: 1" autocomplete="off" /></label>
+        <label>카운터 / 선반형 1800<input name="counter_shelf_1800_count" inputmode="numeric" placeholder="예: 1" autocomplete="off" /></label>
+        <label>카운터 / 선반형 1600<input name="counter_shelf_1600_count" inputmode="numeric" placeholder="예: 1" autocomplete="off" /></label>
+        <label>테이블 / 600*1200<input name="table_count" inputmode="numeric" placeholder="예: 3" autocomplete="off" /></label>
         <label>광고판 갯수<input name="sign_count" inputmode="numeric" placeholder="예: 2" autocomplete="off" /></label>
         <label>매장 기초 사진<input name="base_photo_files" type="file" accept="image/*,application/pdf,.pdf,.heic,.heif" multiple /></label>
         <label>특이사항<textarea name="special_notes" placeholder="현장 특이사항, 요청사항, 주의할 점"></textarea></label>
@@ -1605,7 +1639,7 @@ function constructionStartView(data) {
           <h2>공사 시작 접수 목록</h2>
           <button>${data.constructionStarts.length}건 접수</button>
         </div>
-        ${table(["매장", "평수", "벽장", "진열장", "카운터", "테이블", "광고판", "도면", "기초 사진", "특이사항"], constructionStartRows(data))}
+        ${table(["매장", "평수", "벽장/상부장", "벽장/하부장", "진열장/유리장", "카운터/서랍형 1200", "카운터/선반형 1800", "카운터/선반형 1600", "테이블", "광고판", "도면", "기초 사진", "특이사항"], constructionStartRows(data))}
       </article>
     </section>
   `;
@@ -1639,22 +1673,26 @@ function furnitureCostRows() {
 }
 
 function furnitureAllocationRows(data) {
-  const wallUnit = furnitureGroupUnit("벽장");
-  const displayUnit = furnitureGroupUnit("진열장");
-  const counterUnit = furnitureGroupUnit("카운터");
-
   return data.constructionStarts.map((item) => {
-    const wallCount = numberValue(item.wall_cabinet_count);
+    const upperCount = numberValue(item.wall_upper_count ?? item.wall_cabinet_count);
+    const lowerCount = numberValue(item.wall_lower_count);
     const displayCount = numberValue(item.display_fixture_count ?? item.fixture_count);
-    const counterCount = numberValue(item.counter_count);
-    const total = wallCount * wallUnit + displayCount * displayUnit + counterCount * counterUnit;
+    const counterDrawer1200Count = numberValue(item.counter_drawer_1200_count ?? item.counter_count);
+    const counterShelf1800Count = numberValue(item.counter_shelf_1800_count);
+    const counterShelf1600Count = numberValue(item.counter_shelf_1600_count);
+    const tableCount = numberValue(item.table_count);
+    const total = fixtureCostForStore(data, item.store_name);
 
     return `
       <tr>
         <td>${item.store_name}</td>
-        <td>${wallCount}</td>
+        <td>${upperCount}</td>
+        <td>${lowerCount}</td>
         <td>${displayCount}</td>
-        <td>${counterCount}</td>
+        <td>${counterDrawer1200Count}</td>
+        <td>${counterShelf1800Count}</td>
+        <td>${counterShelf1600Count}</td>
+        <td>${tableCount}</td>
         <td class="money">${formatKRW(total)}</td>
       </tr>`;
   });
@@ -1676,7 +1714,7 @@ function furnitureAllocationView(data) {
           <h2>매장별 예상 배분</h2>
           <button>${data.constructionStarts.length}개 매장</button>
         </div>
-        ${table(["매장", "벽장", "진열장", "카운터", "예상 반영 금액"], furnitureAllocationRows(data))}
+        ${table(["매장", "벽장/상부장", "벽장/하부장", "진열장/유리장", "카운터/서랍형 1200", "카운터/선반형 1800", "카운터/선반형 1600", "테이블", "예상 반영 금액"], furnitureAllocationRows(data))}
       </article>
     </section>
   `;
