@@ -129,6 +129,7 @@ let activeView = "대시보드";
 let activeRole = "인테리어 공사실장";
 let currentUser = null;
 let transferDateFilter = { startDate: "", endDate: "" };
+let selectedDocumentStore = "";
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -763,8 +764,9 @@ async function saveStoreQuote(storeName, status) {
   }
 
   currentData = await loadData();
-  activeView = "매장별 공사 관리";
-  render(status === "계약 완료" ? `${storeName} 계약 완료 상태로 저장됐습니다.` : `${storeName} 견적이 확정됐습니다.`);
+  selectedDocumentStore = storeName;
+  activeView = status === "계약 완료" ? "견적서 생성" : "매장별 공사 관리";
+  render(status === "계약 완료" ? `${storeName} 공사 완료 처리됐습니다. 견적서와 계약서를 확인할 수 있습니다.` : `${storeName} 견적이 확정됐습니다.`);
 }
 
 function normalizeBankName(bank) {
@@ -1176,6 +1178,31 @@ function quoteAmounts(data, storeName, marginRate) {
   return { directCost, fixtureCost, costTotal, supplyAmount, vatAmount, totalAmount };
 }
 
+function documentLineItems(data, storeName, marginRate) {
+  const grouped = new Map();
+  data.payments
+    .filter((payment) => {
+      const sameStore = payment.store === storeName;
+      const approved = payment.status === "승인";
+      const item = String(payment.payment_item || "");
+      const fixtureMaterial = item.includes("진열장") || item.includes("벽장") || item.includes("카운터");
+      return sameStore && approved && !fixtureMaterial;
+    })
+    .forEach((payment) => {
+      const key = payment.payment_item || "기타 공사";
+      grouped.set(key, (grouped.get(key) || 0) + Number(payment.amount || 0));
+    });
+
+  const fixtureCost = fixtureCostForStore(data, storeName);
+  if (fixtureCost > 0) grouped.set("진열장 원가 배분", (grouped.get("진열장 원가 배분") || 0) + fixtureCost);
+
+  return [...grouped.entries()].map(([name, cost]) => {
+    const supply = Math.round(cost * (1 + numberValue(marginRate) / 100));
+    const vat = Math.round(supply * 0.1);
+    return { name, cost, supply, vat, total: supply + vat };
+  });
+}
+
 function storeManagementRows(data) {
   return allManagedStoreNames(data).map((storeName) => {
     const quote = quoteForStore(data, storeName);
@@ -1197,7 +1224,9 @@ function storeManagementRows(data) {
         <td>
           <div class="row-actions">
             <button data-quote-finalize="${escapeAttr(storeName)}">견적 확정</button>
-            <button data-contract-complete="${escapeAttr(storeName)}">계약 완료</button>
+            <button data-contract-complete="${escapeAttr(storeName)}">완료/문서 생성</button>
+            <button data-document-view="견적서 생성" data-document-store="${escapeAttr(storeName)}">견적서</button>
+            <button data-document-view="계약서 생성" data-document-store="${escapeAttr(storeName)}">계약서</button>
           </div>
         </td>
       </tr>`;
@@ -1750,6 +1779,89 @@ function storesView(data) {
   `;
 }
 
+function documentStoreOptions(data) {
+  return allManagedStoreNames(data)
+    .map((storeName) => `<option value="${escapeAttr(storeName)}" ${storeName === selectedDocumentStore ? "selected" : ""}>${escapeAttr(storeName)}</option>`)
+    .join("");
+}
+
+function quoteDocumentRows(lines) {
+  return lines.map(
+    (line, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${line.name}</td>
+        <td class="money">${formatKRW(line.cost)}</td>
+        <td class="money">${formatKRW(line.supply)}</td>
+        <td class="money">${formatKRW(line.vat)}</td>
+        <td class="money">${formatKRW(line.total)}</td>
+      </tr>`
+  );
+}
+
+function documentView(data, type) {
+  const storeNames = allManagedStoreNames(data);
+  const storeName = selectedDocumentStore || storeNames[0] || "";
+  selectedDocumentStore = storeName;
+  const quote = quoteForStore(data, storeName);
+  const marginRate = quote.margin_rate ?? 35;
+  const amounts = quoteAmounts(data, storeName, marginRate);
+  const lines = documentLineItems(data, storeName, marginRate);
+  const start = constructionStartForStore(data, storeName);
+  const isContract = type === "계약서 생성";
+
+  if (!storeName) {
+    return `<section class="panel empty-panel"><h2>${type}</h2><p>문서를 만들 매장 데이터가 아직 없습니다.</p></section>`;
+  }
+
+  return `
+    <section class="grid">
+      <article class="panel">
+        <div class="panel-head">
+          <h2>${type}</h2>
+          <div class="row-actions">
+            <select data-document-store-select>${documentStoreOptions(data)}</select>
+            <button data-print-document>인쇄</button>
+          </div>
+        </div>
+        <div class="notice">매장별 공사관리에서 저장한 마진율과 승인 완료된 결제 원가를 기준으로 작성됩니다.</div>
+        <section class="document-preview">
+          <div class="document-title">
+            <span>HAKA Construction</span>
+            <h1>${isContract ? "공사 계약서" : "공사 견적서"}</h1>
+            <p>${today()}</p>
+          </div>
+          <div class="document-meta">
+            <div><span>매장명</span><strong>${storeName}</strong></div>
+            <div><span>평수</span><strong>${start.area ? `${start.area}평` : "-"}</strong></div>
+            <div><span>상태</span><strong>${quote.quote_status || "정산중"}</strong></div>
+            <div><span>마진율</span><strong>${marginRate}%</strong></div>
+          </div>
+          ${
+            isContract
+              ? `<div class="contract-body">
+                  <p>본 계약은 ${storeName} 공사와 관련하여 승인된 결제 원가와 진열장 원가 배분 내역을 기준으로 산정한 최종 공사금액을 계약 기준으로 한다.</p>
+                  <p>최종 계약금액은 부가세 포함 ${formatKRW(amounts.totalAmount)}이며, 세부 산출 내역은 아래 견적 기준표를 따른다.</p>
+                </div>`
+              : ""
+          }
+          ${table(["No", "항목", "원가", "마진 반영 공급가", "부가세", "합계"], quoteDocumentRows(lines))}
+          <div class="document-total">
+            <span>원가 합계 ${formatKRW(amounts.costTotal)}</span>
+            <span>공급가 ${formatKRW(amounts.supplyAmount)}</span>
+            <span>부가세 ${formatKRW(amounts.vatAmount)}</span>
+            <strong>최종 금액 ${formatKRW(amounts.totalAmount)}</strong>
+          </div>
+          <div class="signature-grid">
+            <div><span>발주자</span><strong>하카코리아</strong></div>
+            <div><span>시공/관리</span><strong>HAKA Construction</strong></div>
+          </div>
+        </section>
+      </article>
+    </section>
+  `;
+}
+
 function userRoleRows(data) {
   return data.userRoles.map(
     (user) => `
@@ -1813,6 +1925,8 @@ function activeContent(data) {
   if (activeView === "결제 계좌 관리" || activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
   if (activeView === "진열장 원가 배분") return furnitureAllocationView(data);
+  if (activeView === "견적서 생성") return documentView(data, "견적서 생성");
+  if (activeView === "계약서 생성") return documentView(data, "계약서 생성");
   if (activeView === "은행 이체 파일 생성") return bankTransferView(data);
   if (activeView === "관리자 설정") return adminSettingsView(data);
   return placeholderView(activeView);
@@ -2101,6 +2215,21 @@ function render(notice = "") {
   document.querySelectorAll("[data-contract-complete]").forEach((button) => {
     button.addEventListener("click", () => saveStoreQuote(button.dataset.contractComplete, "계약 완료"));
   });
+
+  document.querySelectorAll("[data-document-view][data-document-store]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedDocumentStore = button.dataset.documentStore;
+      activeView = button.dataset.documentView;
+      render();
+    });
+  });
+
+  document.querySelector("[data-document-store-select]")?.addEventListener("change", (event) => {
+    selectedDocumentStore = event.currentTarget.value;
+    render();
+  });
+
+  document.querySelector("[data-print-document]")?.addEventListener("click", () => window.print());
 
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
     button.addEventListener("click", () => {

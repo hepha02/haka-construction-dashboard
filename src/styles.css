@@ -706,6 +706,92 @@ button:disabled {
   background: #f8fbfa;
 }
 
+.document-preview {
+  display: grid;
+  gap: 18px;
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 28px;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.document-title {
+  text-align: center;
+}
+
+.document-title span {
+  color: #237c63;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.document-title h1 {
+  margin: 8px 0;
+  color: #162033;
+  font-size: 28px;
+}
+
+.document-title p {
+  margin: 0;
+  color: #667386;
+}
+
+.document-meta,
+.signature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.document-meta div,
+.signature-grid div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.document-meta span,
+.signature-grid span {
+  display: block;
+  margin-bottom: 6px;
+  color: #7a8597;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.document-meta strong,
+.signature-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.contract-body {
+  display: grid;
+  gap: 8px;
+  color: #344154;
+  line-height: 1.7;
+}
+
+.contract-body p {
+  margin: 0;
+}
+
+.document-total {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  color: #344154;
+  font-weight: 800;
+}
+
+.document-total strong {
+  color: #162033;
+  font-size: 20px;
+}
+
 .transfer-download-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -941,6 +1027,15 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .document-preview {
+    padding: 16px;
+  }
+
+  .document-meta,
+  .signature-grid {
+    grid-template-columns: 1fr;
+  }
+
   .table-wrap {
     margin-right: -14px;
     margin-left: -14px;
@@ -971,5 +1066,40 @@ button:disabled {
   .lower,
   .transfer-download-panel {
     grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  body {
+    background: #ffffff;
+  }
+
+  .sidebar,
+  header,
+  .notice,
+  .toast,
+  .panel-head,
+  nav {
+    display: none !important;
+  }
+
+  #app {
+    display: block;
+  }
+
+  .content,
+  .panel {
+    padding: 0;
+  }
+
+  .panel {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .document-preview {
+    max-width: none;
+    padding: 0;
+    border: 0;
   }
 }
