@@ -128,6 +128,7 @@ let currentData = fallback;
 let activeView = "대시보드";
 let activeRole = "인테리어 공사실장";
 let currentUser = null;
+let transferDateFilter = { startDate: "", endDate: "" };
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -1535,41 +1536,52 @@ function paymentView(data) {
 }
 
 function bankTransferView(data) {
-  const records = bankTransferRecords(data);
+  const allRecords = bankTransferRecords(data);
+  const records = bankTransferRecords(data, transferDateFilter);
   const readyCount = records.filter((record) => record.ready).length;
   const totalAmount = records
     .filter((record) => record.ready)
     .reduce((sum, record) => sum + record.amount, 0);
+  const periodText =
+    transferDateFilter.startDate || transferDateFilter.endDate
+      ? `${transferDateFilter.startDate || "처음"} ~ ${transferDateFilter.endDate || "오늘"}`
+      : "전체 기간";
 
   return `
     <section class="grid two">
       <article class="panel">
         <div class="panel-head">
-          <h2>은행 대량이체 파일</h2>
-          <button class="primary" data-bank-transfer-download>엑셀 다운로드</button>
+          <h2>날짜별 지급 내역 조회</h2>
+          <button>${periodText}</button>
         </div>
-        <div class="notice">승인된 결제건만 이체 파일에 들어갑니다. 사업소득 3.3% 건은 원천징수 후 실지급액으로 내려받습니다.</div>
+        <div class="notice">승인된 결제건을 날짜별로 조회합니다. 현재 날짜 기준은 결제 신청일입니다.</div>
         <div class="date-filter">
-          <label>시작일<input type="date" data-transfer-start /></label>
-          <label>종료일<input type="date" data-transfer-end /></label>
-          <button class="primary" data-bank-transfer-download="range">선택 기간 엑셀 다운로드</button>
-          <button data-bank-transfer-download>전체 승인건 다운로드</button>
+          <label>시작일<input type="date" data-transfer-start value="${escapeAttr(transferDateFilter.startDate)}" /></label>
+          <label>종료일<input type="date" data-transfer-end value="${escapeAttr(transferDateFilter.endDate)}" /></label>
+          <button class="primary" data-transfer-filter>조회</button>
+          <button data-transfer-clear>전체 보기</button>
+          <button data-bank-transfer-download="range">조회 결과 엑셀 다운로드</button>
         </div>
-        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "입금액", "지급 유형", "상태"], bankTransferRows(data))}
+        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "입금액", "지급 유형", "상태"], bankTransferRows({ ...data, payments: records.map((record) => record.payment) }))}
       </article>
       <article class="panel">
         <div class="panel-head">
-          <h2>다운로드 요약</h2>
+          <h2>조회 요약</h2>
           <button>${readyCount}건 가능</button>
         </div>
         <section class="kpis compact-kpis">
           <article class="kpi">
-            <span>승인 건</span>
-            <strong>${records.length}건</strong>
-            <small>결제 상태가 승인인 건</small>
+            <span>전체 승인 건</span>
+            <strong>${allRecords.length}건</strong>
+            <small>전체 기간 승인 건</small>
           </article>
           <article class="kpi">
-            <span>다운로드 가능</span>
+            <span>조회된 건</span>
+            <strong>${records.length}건</strong>
+            <small>${periodText}</small>
+          </article>
+          <article class="kpi">
+            <span>계좌 확인 완료</span>
             <strong>${readyCount}건</strong>
             <small>은행/계좌/예금주 확인 완료</small>
           </article>
@@ -1998,6 +2010,20 @@ function render(notice = "") {
 
   const constructionStartFormElement = document.querySelector("#construction-start-form");
   if (constructionStartFormElement) constructionStartFormElement.addEventListener("submit", submitConstructionStart);
+
+  document.querySelector("[data-transfer-filter]")?.addEventListener("click", (event) => {
+    const panel = event.currentTarget.closest(".panel") || document;
+    transferDateFilter = {
+      startDate: panel.querySelector("[data-transfer-start]")?.value || "",
+      endDate: panel.querySelector("[data-transfer-end]")?.value || ""
+    };
+    render();
+  });
+
+  document.querySelector("[data-transfer-clear]")?.addEventListener("click", () => {
+    transferDateFilter = { startDate: "", endDate: "" };
+    render();
+  });
 
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
     button.addEventListener("click", () => {
