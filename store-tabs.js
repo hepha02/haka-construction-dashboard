@@ -9,6 +9,7 @@ let storesByName = new Map();
 let quotesByStore = new Map();
 let loading = false;
 let loadedAt = 0;
+let applying = false;
 
 const style = document.createElement("style");
 style.textContent = `
@@ -20,10 +21,12 @@ style.textContent = `
     border: 1px solid #d9e7e2;
     border-radius: 8px;
     background: #f8fbfa;
+    position: relative;
+    z-index: 3;
   }
   .store-tabs-overlay button {
-    min-height: 32px;
-    padding: 0 12px;
+    min-height: 34px;
+    padding: 0 14px;
     border: 1px solid transparent;
     border-radius: 8px;
     color: #344154;
@@ -31,6 +34,7 @@ style.textContent = `
     font-size: 12px;
     font-weight: 900;
     cursor: pointer;
+    pointer-events: auto;
   }
   .store-tabs-overlay button.active {
     color: #116447;
@@ -108,16 +112,11 @@ function ensureTabs(panel, counts) {
     const head = panel.querySelector(".panel-head");
     head?.insertAdjacentElement("afterend", tabs);
   }
-  tabs.innerHTML = `
+  const nextHtml = `
     <button type="button" data-store-tab="진행중" class="${mode === "진행중" ? "active" : ""}">진행중 ${counts.progress}건</button>
     <button type="button" data-store-tab="완료" class="${mode === "완료" ? "active" : ""}">완료 매장 ${counts.completed}건</button>
   `;
-  tabs.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", () => {
-      mode = button.dataset.storeTab;
-      applyTabs(true);
-    });
-  });
+  if (tabs.innerHTML.trim() !== nextHtml.trim()) tabs.innerHTML = nextHtml;
 }
 
 function setEmptyRow(panel, visibleCount) {
@@ -134,28 +133,47 @@ function setEmptyRow(panel, visibleCount) {
 async function applyTabs(forceRefresh = false) {
   const panel = findStorePanel();
   if (!panel) return;
-  await refreshData(forceRefresh);
+  applying = true;
+  try {
+    await refreshData(forceRefresh);
 
-  const classified = classifyRows(panel);
-  const progress = classified.filter((item) => !item.hardcopy && !item.completed).length;
-  const completed = classified.filter((item) => !item.hardcopy && item.completed).length;
-  ensureTabs(panel, { progress, completed });
+    const classified = classifyRows(panel);
+    const progress = classified.filter((item) => !item.hardcopy && !item.completed).length;
+    const completed = classified.filter((item) => !item.hardcopy && item.completed).length;
+    ensureTabs(panel, { progress, completed });
 
-  let visibleCount = 0;
-  classified.forEach((item) => {
-    const show = !item.hardcopy && (mode === "완료" ? item.completed : !item.completed);
-    item.row.style.display = show ? "" : "none";
-    if (show) visibleCount += 1;
-  });
+    let visibleCount = 0;
+    classified.forEach((item) => {
+      const show = !item.hardcopy && (mode === "완료" ? item.completed : !item.completed);
+      item.row.style.display = show ? "" : "none";
+      if (show) visibleCount += 1;
+    });
 
-  const countButton = panel.querySelector(".panel-head button");
-  if (countButton) countButton.textContent = `${visibleCount}개 매장`;
-  setEmptyRow(panel, visibleCount);
+    const countButton = panel.querySelector(".panel-head button");
+    if (countButton) countButton.textContent = `${visibleCount}개 매장`;
+    setEmptyRow(panel, visibleCount);
+  } finally {
+    applying = false;
+  }
 }
 
+document.addEventListener(
+  "click",
+  (event) => {
+    const button = event.target.closest?.("[data-store-tab]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    mode = button.dataset.storeTab || "진행중";
+    applyTabs(true);
+  },
+  true
+);
+
 const observer = new MutationObserver(() => {
+  if (applying) return;
   window.clearTimeout(window.__storeTabsTimer);
-  window.__storeTabsTimer = window.setTimeout(() => applyTabs(false), 80);
+  window.__storeTabsTimer = window.setTimeout(() => applyTabs(false), 120);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
