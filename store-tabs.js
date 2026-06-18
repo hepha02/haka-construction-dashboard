@@ -41,10 +41,49 @@ style.textContent = `
     border-color: #b9d8cd;
     background: #e6f5ee;
   }
+  .store-tabs-managed .table-wrap {
+    position: relative;
+  }
+  .store-tabs-managed th:first-child,
+  .store-tabs-managed td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: #ffffff;
+    box-shadow: 8px 0 12px rgba(22, 32, 51, 0.06);
+  }
+  .store-tabs-managed th:last-child,
+  .store-tabs-managed td:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 3;
+    min-width: 210px;
+    background: #ffffff;
+    box-shadow: -8px 0 12px rgba(22, 32, 51, 0.08);
+  }
+  .store-tabs-managed th:first-child,
+  .store-tabs-managed th:last-child {
+    z-index: 4;
+    background: #f8fafc;
+  }
+  .store-tabs-managed td:last-child .row-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(70px, 1fr));
+    gap: 6px;
+  }
+  .store-tabs-managed td:last-child .row-actions button {
+    min-height: 34px;
+    white-space: nowrap;
+  }
   .store-tabs-empty-row td {
     color: #667386;
     text-align: center;
     font-weight: 800;
+  }
+  .store-tabs-empty-row td:first-child,
+  .store-tabs-empty-row td:last-child {
+    position: static;
+    box-shadow: none;
   }
 `;
 document.head.appendChild(style);
@@ -105,6 +144,7 @@ function classifyRows(panel) {
 }
 
 function ensureTabs(panel, counts) {
+  panel.classList.add("store-tabs-managed");
   let tabs = panel.querySelector(".store-tabs-overlay");
   if (!tabs) {
     tabs = document.createElement("div");
