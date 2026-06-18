@@ -542,6 +542,27 @@ button:disabled {
   background: #f8fbfa;
 }
 
+.segmented-tabs {
+  display: inline-flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border: 1px solid #d9e7e2;
+  border-radius: 8px;
+  background: #f8fbfa;
+}
+
+.segmented-tabs button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.segmented-tabs button.active {
+  color: #116447;
+  border-color: #b9d8cd;
+  background: #e6f5ee;
+}
+
 .check-control {
   display: inline-flex;
   align-items: center;

@@ -1,9 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
+const env = import.meta.env || {};
 const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL || "https://yqemtsbdnypgmkuyncxh.supabase.co";
+  env.VITE_SUPABASE_URL || "https://yqemtsbdnypgmkuyncxh.supabase.co";
 const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  env.VITE_SUPABASE_ANON_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
 
 const supabase =
@@ -130,6 +131,7 @@ let activeRole = "인테리어 공사실장";
 let currentUser = null;
 let transferDateFilter = { startDate: "", endDate: "" };
 let selectedDocumentStore = "";
+let storeManagementFilter = "진행중";
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -1167,6 +1169,33 @@ function allManagedStoreNames(data) {
   return [...new Set(names.map((name) => String(name || "").trim()).filter(Boolean))];
 }
 
+function storeForName(data, storeName) {
+  return data.stores.find((store) => store.name === storeName) || {};
+}
+
+function isHardcopyCompletedStore(data, storeName) {
+  const store = storeForName(data, storeName);
+  return store.status === "완료" && !store.document_required;
+}
+
+function isCompletedManagedStore(data, storeName) {
+  const quote = quoteForStore(data, storeName);
+  const store = storeForName(data, storeName);
+  return quote.quote_status === "계약 완료" || (store.status === "완료" && Boolean(store.document_required));
+}
+
+function managedStoreNamesByStatus(data, filter = "진행중") {
+  return allManagedStoreNames(data).filter((storeName) => {
+    if (isHardcopyCompletedStore(data, storeName)) return false;
+    const completed = isCompletedManagedStore(data, storeName);
+    return filter === "완료" ? completed : !completed;
+  });
+}
+
+function documentManagedStoreNames(data) {
+  return allManagedStoreNames(data).filter((storeName) => !isHardcopyCompletedStore(data, storeName));
+}
+
 function quoteAmounts(data, storeName, marginRate) {
   const directCost = approvedDirectCost(data, storeName);
   const fixtureCost = fixtureCostForStore(data, storeName);
@@ -1203,8 +1232,8 @@ function documentLineItems(data, storeName, marginRate) {
   });
 }
 
-function storeManagementRows(data) {
-  return allManagedStoreNames(data).map((storeName) => {
+function storeManagementRows(data, filter = "진행중") {
+  return managedStoreNamesByStatus(data, filter).map((storeName) => {
     const quote = quoteForStore(data, storeName);
     const marginRate = quote.margin_rate ?? 35;
     const amounts = quoteAmounts(data, storeName, marginRate);
@@ -1765,22 +1794,30 @@ function vendorsView(data) {
 }
 
 function storesView(data) {
+  const activeStores = managedStoreNamesByStatus(data, storeManagementFilter);
+  const progressCount = managedStoreNamesByStatus(data, "진행중").length;
+  const completedCount = managedStoreNamesByStatus(data, "완료").length;
+
   return `
     <section class="grid">
       <article class="panel">
         <div class="panel-head">
           <h2>매장별 정산 및 문서 마감</h2>
-          <button>${allManagedStoreNames(data).length}개 매장</button>
+          <button>${activeStores.length}개 매장</button>
+        </div>
+        <div class="segmented-tabs">
+          <button class="${storeManagementFilter === "진행중" ? "active" : ""}" data-store-management-filter="진행중">진행중 ${progressCount}건</button>
+          <button class="${storeManagementFilter === "완료" ? "active" : ""}" data-store-management-filter="완료">완료 매장 ${completedCount}건</button>
         </div>
         <div class="notice">승인된 결제건과 진열장 원가 배분 금액을 합산한 뒤, 매장별 마진율을 적용해 최종 견적금액을 확정합니다. 확정 금액은 견적서와 계약서 작성 기준으로 사용합니다.</div>
-        ${table(["매장", "상태", "승인 원가", "진열장 배분", "원가 합계", "마진율(%)", "공급가", "부가세", "최종 견적금액", "처리"], storeManagementRows(data))}
+        ${table(["매장", "상태", "승인 원가", "진열장 배분", "원가 합계", "마진율(%)", "공급가", "부가세", "최종 견적금액", "처리"], storeManagementRows(data, storeManagementFilter))}
       </article>
     </section>
   `;
 }
 
 function documentStoreOptions(data) {
-  return allManagedStoreNames(data)
+  return documentManagedStoreNames(data)
     .map((storeName) => `<option value="${escapeAttr(storeName)}" ${storeName === selectedDocumentStore ? "selected" : ""}>${escapeAttr(storeName)}</option>`)
     .join("");
 }
@@ -1800,7 +1837,7 @@ function quoteDocumentRows(lines) {
 }
 
 function documentView(data, type) {
-  const storeNames = allManagedStoreNames(data);
+  const storeNames = documentManagedStoreNames(data);
   const storeName = selectedDocumentStore || storeNames[0] || "";
   selectedDocumentStore = storeName;
   const quote = quoteForStore(data, storeName);
@@ -2214,6 +2251,13 @@ function render(notice = "") {
 
   document.querySelectorAll("[data-contract-complete]").forEach((button) => {
     button.addEventListener("click", () => saveStoreQuote(button.dataset.contractComplete, "계약 완료"));
+  });
+
+  document.querySelectorAll("[data-store-management-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      storeManagementFilter = button.dataset.storeManagementFilter;
+      render();
+    });
   });
 
   document.querySelectorAll("[data-document-view][data-document-store]").forEach((button) => {
