@@ -1,0 +1,105 @@
+/* UI alignment fixes layered over the deployed app */
+.payment-review-date-filter {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: minmax(180px, 1fr) 92px 104px !important;
+  gap: 8px !important;
+  align-items: end !important;
+  margin: 0 0 12px !important;
+  padding: 10px !important;
+  border: 1px solid #d9e7e2 !important;
+  border-radius: 8px !important;
+  background: #f8fbfa !important;
+}
+
+.payment-review-date-filter label {
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 6px !important;
+  margin: 0 !important;
+  color: #596579 !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+}
+
+.payment-review-date-filter input,
+.payment-review-date-filter button {
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  margin: 0 !important;
+  padding: 0 10px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 40px !important;
+  white-space: nowrap !important;
+}
+
+.payment-review-date-filter input {
+  border: 1px solid #dce2ea !important;
+  color: #162033 !important;
+  background: #ffffff !important;
+}
+
+.payment-review-date-filter button {
+  border: 1px solid #d9dfe8 !important;
+  color: #253247 !important;
+  background: #ffffff !important;
+  text-align: center !important;
+}
+
+.payment-review-date-filter button.primary {
+  border-color: #237c63 !important;
+  color: #ffffff !important;
+  background: #237c63 !important;
+}
+
+.payment-review-card summary {
+  gap: 10px !important;
+}
+
+.payment-date-chip {
+  max-width: 110px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+@media (max-width: 720px) {
+  .payment-review-date-filter {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    padding: 10px !important;
+  }
+
+  .payment-review-date-filter label {
+    grid-column: 1 / -1 !important;
+  }
+
+  .payment-review-date-filter input {
+    height: 44px !important;
+    min-height: 44px !important;
+    line-height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  .payment-review-date-filter button {
+    height: 42px !important;
+    min-height: 42px !important;
+    line-height: 42px !important;
+  }
+
+  .payment-summary-meta {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+    align-items: start !important;
+  }
+
+  .payment-date-chip {
+    max-width: 100% !important;
+  }
+}
