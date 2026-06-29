@@ -1,4 +1,4 @@
-const LATEST_VERSION = "auth-resend-strong-3";
+const LATEST_VERSION = "auth-resend-strong-4";
 const params = new URLSearchParams(location.search);
 const currentVersion = params.get("v") || "";
 const oldVersion = currentVersion && currentVersion !== LATEST_VERSION;
