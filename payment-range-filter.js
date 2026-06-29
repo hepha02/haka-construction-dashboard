@@ -1,4 +1,5 @@
 let paymentReviewRange = { startDate: "", endDate: "" };
+let applyingPaymentRange = false;
 
 function requestedDateFromCard(card) {
   const detailItems = [...card.querySelectorAll(".payment-detail-grid div")];
@@ -22,50 +23,57 @@ function findReviewPanel() {
 function ensureRangeFilter() {
   const panel = findReviewPanel();
   if (!panel) return;
-
   panel.querySelector(".payment-review-date-filter")?.remove();
-  let filter = panel.querySelector(".payment-review-range-filter");
-  if (!filter) {
-    filter = document.createElement("div");
-    filter.className = "payment-review-range-filter";
-    panel.querySelector(".bulk-actions")?.insertAdjacentElement("beforebegin", filter) ||
-      panel.querySelector(".panel-head")?.insertAdjacentElement("afterend", filter);
-  }
+  if (panel.querySelector(".payment-review-range-filter")) return;
 
+  const filter = document.createElement("div");
+  filter.className = "payment-review-range-filter";
   filter.innerHTML = `
-    <label>시작일<input type="date" data-payment-review-start value="${paymentReviewRange.startDate}" /></label>
-    <label>종료일<input type="date" data-payment-review-end value="${paymentReviewRange.endDate}" /></label>
+    <label>시작일<input type="date" data-payment-review-start /></label>
+    <label>종료일<input type="date" data-payment-review-end /></label>
     <button class="primary" type="button" data-payment-review-range-search>조회</button>
     <button type="button" data-payment-review-range-clear>전체 보기</button>
   `;
+  panel.querySelector(".bulk-actions")?.insertAdjacentElement("beforebegin", filter) ||
+    panel.querySelector(".panel-head")?.insertAdjacentElement("afterend", filter);
 }
 
 function applyPaymentReviewRange() {
+  if (document.activeElement?.matches?.("[data-payment-review-start], [data-payment-review-end]")) return;
   const panel = findReviewPanel();
   if (!panel) return;
-  ensureRangeFilter();
+  applyingPaymentRange = true;
+  try {
+    ensureRangeFilter();
+    const startInput = panel.querySelector("[data-payment-review-start]");
+    const endInput = panel.querySelector("[data-payment-review-end]");
+    if (startInput && startInput.value !== paymentReviewRange.startDate) startInput.value = paymentReviewRange.startDate;
+    if (endInput && endInput.value !== paymentReviewRange.endDate) endInput.value = paymentReviewRange.endDate;
 
-  const cards = [...panel.querySelectorAll(".payment-review-card")];
-  let visibleCount = 0;
-  cards.forEach((card) => {
-    const date = requestedDateFromCard(card);
+    const cards = [...panel.querySelectorAll(".payment-review-card")];
+    let visibleCount = 0;
+    cards.forEach((card) => {
+      const date = requestedDateFromCard(card);
+      const useFilter = paymentReviewRange.startDate || paymentReviewRange.endDate;
+      const show = !useFilter || inPaymentReviewRange(date);
+      card.style.display = show ? "" : "none";
+      if (!show) {
+        const checkbox = card.querySelector(".payment-select");
+        if (checkbox) checkbox.checked = false;
+      }
+      if (show) visibleCount += 1;
+    });
+
+    panel.querySelector(".payment-review-empty")?.remove();
     const useFilter = paymentReviewRange.startDate || paymentReviewRange.endDate;
-    const show = !useFilter || inPaymentReviewRange(date);
-    card.style.display = show ? "" : "none";
-    if (!show) {
-      const checkbox = card.querySelector(".payment-select");
-      if (checkbox) checkbox.checked = false;
+    if (!visibleCount && cards.length && useFilter) {
+      const empty = document.createElement("div");
+      empty.className = "payment-review-empty";
+      empty.textContent = `${paymentReviewRange.startDate || "처음"} ~ ${paymentReviewRange.endDate || "오늘"} 신청 건이 없습니다.`;
+      panel.querySelector(".payment-review-list")?.appendChild(empty);
     }
-    if (show) visibleCount += 1;
-  });
-
-  panel.querySelector(".payment-review-empty")?.remove();
-  const useFilter = paymentReviewRange.startDate || paymentReviewRange.endDate;
-  if (!visibleCount && cards.length && useFilter) {
-    const empty = document.createElement("div");
-    empty.className = "payment-review-empty";
-    empty.textContent = `${paymentReviewRange.startDate || "처음"} ~ ${paymentReviewRange.endDate || "오늘"} 신청 건이 없습니다.`;
-    panel.querySelector(".payment-review-list")?.appendChild(empty);
+  } finally {
+    applyingPaymentRange = false;
   }
 }
 
@@ -88,6 +96,11 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     paymentReviewRange = { startDate: "", endDate: "" };
+    const panel = findReviewPanel();
+    const startInput = panel?.querySelector("[data-payment-review-start]");
+    const endInput = panel?.querySelector("[data-payment-review-end]");
+    if (startInput) startInput.value = "";
+    if (endInput) endInput.value = "";
     applyPaymentReviewRange();
     return;
   }
@@ -140,8 +153,12 @@ style.textContent = `
     font-size: 13px;
     font-weight: 900;
     white-space: nowrap;
+    pointer-events: auto;
+    touch-action: manipulation;
   }
   .payment-review-range-filter input {
+    position: relative;
+    z-index: 5;
     border: 1px solid #dce2ea;
     color: #162033;
     background: #ffffff;
@@ -165,8 +182,9 @@ style.textContent = `
 document.head.appendChild(style);
 
 const observer = new MutationObserver(() => {
+  if (applyingPaymentRange) return;
   window.clearTimeout(window.__paymentRangeTimer);
-  window.__paymentRangeTimer = window.setTimeout(applyPaymentReviewRange, 160);
+  window.__paymentRangeTimer = window.setTimeout(applyPaymentReviewRange, 250);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 applyPaymentReviewRange();
