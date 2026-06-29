@@ -38,8 +38,8 @@ function ensureRangeFilter() {
     panel.querySelector(".panel-head")?.insertAdjacentElement("afterend", filter);
 }
 
-function applyPaymentReviewRange() {
-  if (document.activeElement?.matches?.("[data-payment-review-start], [data-payment-review-end]")) return;
+function applyPaymentReviewRange(force = false) {
+  if (!force && document.activeElement?.matches?.("[data-payment-review-start], [data-payment-review-end]")) return;
   const panel = findReviewPanel();
   if (!panel) return;
   applyingPaymentRange = true;
@@ -87,7 +87,8 @@ document.addEventListener("click", (event) => {
       startDate: panel?.querySelector("[data-payment-review-start]")?.value || "",
       endDate: panel?.querySelector("[data-payment-review-end]")?.value || ""
     };
-    applyPaymentReviewRange();
+    search.blur();
+    applyPaymentReviewRange(true);
     return;
   }
 
@@ -101,7 +102,8 @@ document.addEventListener("click", (event) => {
     const endInput = panel?.querySelector("[data-payment-review-end]");
     if (startInput) startInput.value = "";
     if (endInput) endInput.value = "";
-    applyPaymentReviewRange();
+    clear.blur();
+    applyPaymentReviewRange(true);
     return;
   }
 
@@ -123,14 +125,16 @@ style.textContent = `
     box-sizing: border-box;
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) 86px 104px;
-    gap: 8px;
+    grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) 96px 112px;
+    gap: 10px;
     align-items: end;
     margin: 0 0 12px;
     padding: 10px;
     border: 1px solid #d9e7e2;
     border-radius: 8px;
     background: #f8fbfa;
+    position: relative;
+    z-index: 20;
   }
   .payment-review-range-filter label {
     display: grid;
@@ -145,20 +149,21 @@ style.textContent = `
   .payment-review-range-filter button {
     box-sizing: border-box;
     width: 100%;
-    height: 40px;
-    min-height: 40px;
+    height: 44px;
+    min-height: 44px;
     margin: 0;
-    padding: 0 10px;
+    padding: 0 12px;
     border-radius: 8px;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 900;
     white-space: nowrap;
     pointer-events: auto;
     touch-action: manipulation;
+    position: relative;
+    z-index: 30;
+    cursor: pointer;
   }
   .payment-review-range-filter input {
-    position: relative;
-    z-index: 5;
     border: 1px solid #dce2ea;
     color: #162033;
     background: #ffffff;
@@ -175,8 +180,8 @@ style.textContent = `
   }
   @media (max-width: 720px) {
     .payment-review-range-filter { grid-template-columns: 1fr 1fr; }
-    .payment-review-range-filter input { height: 44px; min-height: 44px; font-size: 16px; }
-    .payment-review-range-filter button { height: 42px; min-height: 42px; }
+    .payment-review-range-filter input { height: 46px; min-height: 46px; font-size: 16px; }
+    .payment-review-range-filter button { height: 46px; min-height: 46px; font-size: 15px; }
   }
 `;
 document.head.appendChild(style);
@@ -184,7 +189,7 @@ document.head.appendChild(style);
 const observer = new MutationObserver(() => {
   if (applyingPaymentRange) return;
   window.clearTimeout(window.__paymentRangeTimer);
-  window.__paymentRangeTimer = window.setTimeout(applyPaymentReviewRange, 250);
+  window.__paymentRangeTimer = window.setTimeout(() => applyPaymentReviewRange(false), 250);
 });
 observer.observe(document.body, { childList: true, subtree: true });
-applyPaymentReviewRange();
+applyPaymentReviewRange(false);
