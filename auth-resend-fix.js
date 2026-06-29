@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const AUTH_RESEND_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
-const AUTH_RESEND_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ5cWVtdHNiZG55cGdta3V5bmN4aCIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
+const AUTH_RESEND_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
 const authResendClient = createClient(AUTH_RESEND_URL, AUTH_RESEND_ANON);
 
 function authEmailInput() {
@@ -48,7 +48,7 @@ async function resendSignupEmail(button) {
     button.textContent = "인증메일 보내는 중";
   }
 
-  const emailRedirectTo = `${location.origin}${location.pathname}?v=auth-resend-strong`;
+  const emailRedirectTo = `${location.origin}${location.pathname}?v=auth-resend-fixed`;
   const { error } = await authResendClient.auth.resend({
     type: "signup",
     email,
