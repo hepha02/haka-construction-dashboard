@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXAiLCJyZWYiOiJ5cWVtdHNiZG55cGdta3V5bmN4aCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzgwMjY2MDE1LCJleHAiOjIwOTU4NDIwMTV9.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs".replace('c3Vw','c3VwYWJhc2UuY28=');
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ5cWVtdHNiZG55cGdta3V5bmN4aCIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const LEDGER_KEY = "haka_transfer_export_ledger_v1";
 
