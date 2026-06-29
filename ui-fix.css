@@ -287,6 +287,54 @@
   padding: 0 18px 18px !important;
 }
 
+/* 은행 이체 중복 방지 표시 */
+.transfer-download-panel {
+  align-items: start !important;
+}
+
+.transfer-summary {
+  min-width: 220px !important;
+  padding: 4px 0 !important;
+}
+
+.transfer-summary span {
+  display: block !important;
+  margin-bottom: 4px !important;
+  color: #526174 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+}
+
+.transfer-summary strong {
+  display: block !important;
+  margin-top: 8px !important;
+  color: #061326 !important;
+  font-size: 20px !important;
+  font-weight: 950 !important;
+}
+
+.transfer-download-panel button:disabled,
+.bulk-actions button:disabled {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+}
+
+.transfer-range-summary {
+  margin: 10px 0 12px !important;
+  padding: 12px 14px !important;
+  border: 1px solid #d9e7e2 !important;
+  border-radius: 8px !important;
+  background: #f8fbfa !important;
+  color: #526174 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 1.45 !important;
+}
+
+.transfer-range-summary strong {
+  color: #061326 !important;
+}
+
 @media (max-width: 920px) {
   .payment-review-card summary {
     grid-template-columns: 1fr !important;
@@ -296,6 +344,10 @@
 
   .payment-summary-meta {
     grid-template-columns: minmax(0, 1fr) max-content !important;
+  }
+
+  .transfer-download-panel {
+    grid-template-columns: 1fr !important;
   }
 }
 
