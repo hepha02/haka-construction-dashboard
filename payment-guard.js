@@ -10,6 +10,10 @@ style.textContent = `
   .transfer-range-summary { margin: 10px 0 12px; padding: 12px 14px; border: 1px solid #d9e7e2; border-radius: 8px; background: #f8fbfa; color: #526174; font-size: 13px; font-weight: 900; line-height: 1.45; }
   .transfer-range-summary strong { color: #061326; }
   .payment-date-chip { display: inline-flex !important; align-items: center; width: max-content; min-height: 24px; padding: 0 8px; border-radius: 999px; color: #1f5fa8; background: #e8f1ff; font-size: 12px; font-weight: 900; white-space: nowrap; }
+  .transfer-payment-select { flex: 0 0 auto !important; width: 20px !important; height: 20px !important; min-height: 20px !important; margin: 0 !important; accent-color: #237c63 !important; }
+  .transfer-select-control { display: inline-flex !important; align-items: center !important; gap: 8px !important; min-height: 44px !important; color: #162033 !important; font-size: 14px !important; font-weight: 800 !important; }
+  .payment-review-card.payment-rejected-card { border-color: #f1b6b2 !important; background: #fffafa !important; }
+  .payment-rejected-note { display: inline-flex; align-items: center; width: fit-content; min-height: 28px; padding: 0 10px; border-radius: 999px; color: #a7332b; background: #fff1f0; font-size: 12px; font-weight: 900; }
 `;
 document.head.appendChild(style);
 
@@ -88,6 +92,13 @@ function paymentsFromCards() {
     .map(paymentFromCard)
     .filter((payment) => payment.status.includes("승인"));
 }
+function selectedTransferPaymentsFromCards() {
+  return [...document.querySelectorAll(".transfer-payment-select:checked")]
+    .map((checkbox) => checkbox.closest(".payment-review-card"))
+    .filter(Boolean)
+    .map(paymentFromCard)
+    .filter((payment) => payment.status.includes("승인"));
+}
 function paymentsFromTransferTable(panel) {
   const rows = [...panel.querySelectorAll("tbody tr")];
   return rows.map((row) => {
@@ -110,6 +121,9 @@ function paymentsFromTransferTable(panel) {
 }
 function currentPaymentsFor(button) {
   const panel = button?.closest("article.panel");
+  const selected = selectedTransferPaymentsFromCards();
+  if (selected.length) return selected;
+  if (button?.closest(".bulk-actions") || button?.closest("article.panel")?.querySelector(".payment-review-card")) return [];
   if (button?.dataset?.bankTransferDownload === "range" && panel?.querySelector("tbody tr")) return paymentsFromTransferTable(panel);
   const cardPayments = paymentsFromCards();
   if (cardPayments.length) return cardPayments;
@@ -148,9 +162,14 @@ function markExported(payments, periodText) {
 async function guardedDownload(button) {
   const panel = button.closest("article.panel") || document;
   const { startDate, endDate, periodText } = periodFromPanel(panel);
+  const selectedCount = document.querySelectorAll(".transfer-payment-select:checked").length;
   const payments = currentPaymentsFor(button);
+  if (!payments.length && (button.closest(".bulk-actions") || button.closest("article.panel")?.querySelector(".payment-review-card"))) {
+    alert("이체 엑셀로 만들 승인건을 먼저 체크해 주세요. 반려 건은 이체 대상에서 제외됩니다.");
+    return;
+  }
   const { approvedReady, exported, fresh } = splitTransferPayments(payments, startDate, endDate);
-  if (!approvedReady.length) { alert("다운로드할 승인 완료 건이 없습니다."); return; }
+  if (!approvedReady.length) { alert(selectedCount ? "선택한 건 중 계좌정보가 완성된 승인건이 없습니다." : "다운로드할 승인 완료 건이 없습니다."); return; }
   if (!fresh.length) { alert(`새로 다운로드할 건이 없습니다. 이미 이체 파일로 받은 ${exported.length}건은 중복 방지를 위해 제외됩니다.`); return; }
   if (exported.length) alert(`이미 이체 파일로 받은 ${exported.length}건은 중복 방지를 위해 자동 제외하고, 새 ${fresh.length}건만 다운로드합니다.`);
   downloadExcel(fresh, periodText);
@@ -172,8 +191,28 @@ function setAfter(target, html) {
   target.parentElement.querySelectorAll(".transfer-duplicate-box, .transfer-duplicate-list").forEach((node) => node.remove());
   if (html) target.insertAdjacentHTML("afterend", html);
 }
+function ensureTransferSelectionControls() {
+  document.querySelectorAll(".payment-review-card").forEach((card) => {
+    const payment = paymentFromCard(card);
+    const main = card.querySelector(".payment-summary-main");
+    if (!main) return;
+    card.classList.toggle("payment-rejected-card", payment.status.includes("반려"));
+    if (payment.status.includes("승인") && !card.querySelector(".transfer-payment-select")) {
+      main.insertAdjacentHTML("afterbegin", `<input type="checkbox" class="transfer-payment-select" aria-label="${escapeHtml(payment.store)} 이체 선택" />`);
+    }
+    if (payment.status.includes("반려") && !card.querySelector(".payment-rejected-note")) {
+      card.querySelector(".payment-summary-meta")?.insertAdjacentHTML("beforeend", `<span class="payment-rejected-note">반려 제외</span>`);
+    }
+  });
+  const bulk = document.querySelector(".bulk-actions");
+  if (bulk && !bulk.querySelector("[data-select-approved-transfers]")) {
+    bulk.insertAdjacentHTML("beforeend", `<label class="transfer-select-control"><input type="checkbox" data-select-approved-transfers /> 이체대상 전체 선택</label>`);
+  }
+}
 function refreshTransferSummary(force = false) {
+  ensureTransferSelectionControls();
   const allPayments = paymentsFromCards();
+  const selected = selectedTransferPaymentsFromCards();
   const allSplit = splitTransferPayments(allPayments);
   document.querySelectorAll(".transfer-download-panel").forEach((panel) => {
     const summary = panel.querySelector(".transfer-summary");
@@ -181,12 +220,13 @@ function refreshTransferSummary(force = false) {
     summary.innerHTML = `
       <span>승인 전체 ${allPayments.length}건</span>
       <span>새로 다운로드 가능 ${allSplit.fresh.length}건</span>
+      <span>선택된 이체대상 ${selected.length}건</span>
       <span>이미 이체파일 생성 ${allSplit.exported.length}건</span>
       <strong>${formatKRW(sumAmount(allSplit.fresh))}</strong>
     `;
     panel.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
-      button.textContent = allSplit.fresh.length ? `새 이체 파일 ${allSplit.fresh.length}건` : "새 이체 건 없음";
-      button.disabled = !allSplit.fresh.length;
+      button.textContent = selected.length ? `선택 이체 파일 ${selected.length}건` : "이체건 선택 필요";
+      button.disabled = false;
     });
     const duplicateHtml = allSplit.exported.length
       ? `<div class="transfer-duplicate-box">이미 엑셀 다운로드된 ${allSplit.exported.length}건, ${formatKRW(sumAmount(allSplit.exported))}은 중복 방지를 위해 다운로드 합계에서 제외됩니다.</div>${duplicateListHtml(allSplit.exported, allSplit.data)}`
@@ -196,12 +236,9 @@ function refreshTransferSummary(force = false) {
 
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
     if (button.closest(".transfer-download-panel")) return;
-    const panel = button.closest("article.panel") || document;
-    const { startDate, endDate } = periodFromPanel(panel);
-    const payments = currentPaymentsFor(button);
-    const split = splitTransferPayments(payments, startDate, endDate);
-    button.textContent = split.fresh.length ? `새 이체 파일 ${split.fresh.length}건` : "새 이체 건 없음";
-    button.disabled = !split.fresh.length;
+    const selectedNow = selectedTransferPaymentsFromCards().length;
+    button.textContent = selectedNow ? `선택 이체 파일 ${selectedNow}건` : "선택건 엑셀 다운로드";
+    button.disabled = false;
   });
 
   document.querySelectorAll("[data-transfer-start]").forEach((startInput) => {
@@ -245,8 +282,20 @@ document.addEventListener("click", (event) => {
   guardedDownload(button);
 }, true);
 
+document.addEventListener("change", (event) => {
+  if (event.target.matches?.("[data-select-approved-transfers]")) {
+    document.querySelectorAll(".payment-review-card").forEach((card) => {
+      const box = card.querySelector(".transfer-payment-select");
+      if (box && card.style.display !== "none") box.checked = event.target.checked;
+    });
+    refreshTransferSummary(true);
+  }
+  if (event.target.matches?.(".transfer-payment-select")) refreshTransferSummary(true);
+}, true);
+
 document.addEventListener("click", (event) => {
   if (event.target.closest?.("[data-transfer-filter], [data-transfer-clear]")) setTimeout(() => refreshTransferSummary(true), 250);
+  if (event.target.closest?.(".transfer-payment-select, [data-select-approved-transfers]")) event.stopPropagation();
 }, true);
 
 const observer = new MutationObserver(() => {
