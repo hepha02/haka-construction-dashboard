@@ -58,14 +58,245 @@
   background: #237c63 !important;
 }
 
-.payment-review-card summary {
+/* 결제 신청 검토 전용 정리 */
+.payment-review-range-filter,
+.payment-review-card,
+.payment-review-list,
+.payment-review-card * {
+  box-sizing: border-box !important;
+}
+
+.payment-review-range-filter {
+  margin-top: 10px !important;
+  margin-bottom: 14px !important;
+}
+
+.payment-review-range-filter label {
+  min-width: 0 !important;
+}
+
+.payment-review-range-filter input,
+.payment-review-range-filter button,
+.bulk-actions button {
+  appearance: none !important;
+  border-radius: 8px !important;
+  font-family: inherit !important;
+}
+
+.bulk-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
   gap: 10px !important;
+  margin: 0 0 16px !important;
+  padding: 14px 16px !important;
+  border: 1px solid #d9e7e2 !important;
+  border-radius: 8px !important;
+  background: #f8fbfa !important;
+}
+
+.bulk-actions label,
+.bulk-actions .check-control {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  min-height: 42px !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  color: #162033 !important;
+}
+
+.bulk-actions input[type="checkbox"] {
+  width: 20px !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 0 !important;
+  accent-color: #237c63 !important;
+}
+
+.bulk-actions button {
+  height: 42px !important;
+  min-height: 42px !important;
+  padding: 0 16px !important;
+  border: 1px solid #237c63 !important;
+  background: #237c63 !important;
+  color: #ffffff !important;
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.bulk-actions button[data-bank-transfer-download] {
+  border-color: #cbd5e1 !important;
+  background: #ffffff !important;
+  color: #162033 !important;
+}
+
+.payment-review-list {
+  display: grid !important;
+  gap: 12px !important;
+}
+
+.payment-review-card {
+  border: 1px solid #dce4ee !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  overflow: hidden !important;
+}
+
+.payment-review-card summary {
+  position: relative !important;
+  display: grid !important;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, 360px) !important;
+  gap: 18px !important;
+  align-items: center !important;
+  min-height: 112px !important;
+  padding: 18px 72px 18px 18px !important;
+  cursor: pointer !important;
+  list-style: none !important;
+}
+
+.payment-review-card summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.payment-review-card summary::after {
+  position: absolute !important;
+  right: 18px !important;
+  bottom: 16px !important;
+  grid-column: auto !important;
+  justify-self: auto !important;
+  color: #006b4d !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  white-space: nowrap !important;
+}
+
+.payment-summary-main {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+}
+
+.payment-summary-main input {
+  flex: 0 0 auto !important;
+  width: 20px !important;
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 0 !important;
+  accent-color: #237c63 !important;
+}
+
+.payment-summary-main > div {
+  min-width: 0 !important;
+}
+
+.payment-summary-main strong,
+.payment-summary-main span {
+  display: block !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.payment-summary-main strong {
+  color: #162033 !important;
+  font-size: 15px !important;
+  line-height: 1.35 !important;
+}
+
+.payment-summary-main span {
+  margin-top: 4px !important;
+  color: #5f6d80 !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
+
+.payment-summary-meta {
+  width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) max-content !important;
+  grid-template-areas:
+    "date status"
+    "item amount" !important;
+  gap: 8px 12px !important;
+  align-items: center !important;
 }
 
 .payment-date-chip {
-  max-width: 110px !important;
+  grid-area: date !important;
+  display: inline-flex !important;
+  width: fit-content !important;
+  max-width: 100% !important;
+  min-height: 28px !important;
+  padding: 0 10px !important;
+  overflow: visible !important;
+  border-radius: 999px !important;
+  color: #145fb2 !important;
+  background: #eaf3ff !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 28px !important;
+  white-space: nowrap !important;
+  text-overflow: clip !important;
+}
+
+.payment-summary-meta > span:not(.payment-date-chip):not(.badge) {
+  grid-area: item !important;
+  min-width: 0 !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: #162033 !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+}
+
+.payment-summary-meta > strong {
+  grid-area: amount !important;
+  justify-self: end !important;
+  color: #061326 !important;
+  font-size: 16px !important;
+  font-weight: 950 !important;
+  font-variant-numeric: tabular-nums !important;
+  white-space: nowrap !important;
+}
+
+.payment-summary-meta > .badge {
+  grid-area: status !important;
+  justify-self: end !important;
+  min-width: 92px !important;
+  max-width: 132px !important;
+  height: 32px !important;
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 999px !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.payment-detail-grid {
+  padding: 0 18px 18px !important;
+}
+
+@media (max-width: 920px) {
+  .payment-review-card summary {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+    padding: 16px 18px 48px !important;
+  }
+
+  .payment-summary-meta {
+    grid-template-columns: minmax(0, 1fr) max-content !important;
+  }
 }
 
 @media (max-width: 720px) {
@@ -92,14 +323,87 @@
     line-height: 42px !important;
   }
 
-  .payment-summary-meta {
-    display: grid !important;
+  .payment-review-range-filter {
     grid-template-columns: 1fr !important;
-    gap: 6px !important;
-    align-items: start !important;
+    gap: 10px !important;
+    padding: 12px !important;
   }
 
-  .payment-date-chip {
-    max-width: 100% !important;
+  .payment-review-range-filter input,
+  .payment-review-range-filter button {
+    width: 100% !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    font-size: 16px !important;
+  }
+
+  .bulk-actions {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    padding: 12px !important;
+  }
+
+  .bulk-actions button {
+    width: 100% !important;
+  }
+
+  .payment-review-card summary {
+    min-height: 0 !important;
+    padding: 16px 14px 46px !important;
+  }
+
+  .payment-summary-main {
+    align-items: flex-start !important;
+  }
+
+  .payment-summary-main strong,
+  .payment-summary-main span {
+    white-space: normal !important;
+  }
+
+  .payment-summary-meta {
+    grid-template-columns: 1fr !important;
+    grid-template-areas:
+      "date"
+      "item"
+      "amount"
+      "status" !important;
+    gap: 8px !important;
+  }
+
+  .payment-summary-meta > span:not(.payment-date-chip):not(.badge),
+  .payment-summary-meta > strong,
+  .payment-summary-meta > .badge {
+    justify-self: start !important;
+  }
+
+  .payment-summary-meta > span:not(.payment-date-chip):not(.badge) {
+    white-space: normal !important;
+  }
+
+  .payment-summary-meta > strong {
+    font-size: 17px !important;
+  }
+
+  .payment-summary-meta > .badge {
+    min-width: 96px !important;
+  }
+
+  .payment-detail-grid {
+    grid-template-columns: 1fr !important;
+    padding: 0 14px 14px !important;
+  }
+
+  .payment-detail-actions {
+    justify-content: stretch !important;
+    flex-direction: column !important;
+  }
+
+  .date-filter {
+    grid-template-columns: 1fr !important;
+  }
+
+  .document-preview {
+    padding: 16px !important;
   }
 }
