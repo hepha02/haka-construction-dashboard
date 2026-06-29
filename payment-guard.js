@@ -4,7 +4,6 @@ const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ5cWVtdHNiZG55cGdta3V5bmN4aCIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const LEDGER_KEY = "haka_transfer_export_ledger_v1";
-let paymentReviewDate = "";
 
 const style = document.createElement("style");
 style.textContent = `
@@ -30,60 +29,6 @@ style.textContent = `
     font-size: 12px;
     font-weight: 900;
     white-space: nowrap;
-  }
-  .payment-review-date-filter {
-    display: grid;
-    grid-template-columns: minmax(150px, 1fr) auto auto;
-    gap: 10px;
-    align-items: end;
-    margin: 0 0 12px;
-    padding: 12px;
-    border: 1px solid #d9e7e2;
-    border-radius: 8px;
-    background: #f8fbfa;
-  }
-  .payment-review-date-filter label {
-    display: grid;
-    gap: 6px;
-    color: #596579;
-    font-size: 13px;
-    font-weight: 900;
-  }
-  .payment-review-date-filter input {
-    min-height: 40px;
-    padding: 0 10px;
-    border: 1px solid #dce2ea;
-    border-radius: 8px;
-    color: #162033;
-    background: #ffffff;
-  }
-  .payment-review-date-filter button {
-    min-height: 40px;
-    padding: 0 12px;
-    border: 1px solid #d9dfe8;
-    border-radius: 8px;
-    color: #253247;
-    background: #ffffff;
-    font-size: 13px;
-    font-weight: 900;
-  }
-  .payment-review-date-filter button.primary {
-    border-color: #237c63;
-    color: #ffffff;
-    background: #237c63;
-  }
-  .payment-review-empty {
-    padding: 18px;
-    border: 1px solid #dfe6ee;
-    border-radius: 8px;
-    color: #667386;
-    background: #ffffff;
-    text-align: center;
-    font-weight: 900;
-  }
-  @media (max-width: 720px) {
-    .payment-review-date-filter { grid-template-columns: 1fr; }
-    .payment-review-date-filter button { width: 100%; }
   }
 `;
 document.head.appendChild(style);
@@ -168,42 +113,6 @@ function addTransferNotice() {
   notice.textContent = "중복 방지: 이 브라우저에서 이미 엑셀로 내려받은 승인건은 다음 다운로드 때 경고 후 제외됩니다.";
   panel.querySelector(".panel-head")?.insertAdjacentElement("afterend", notice);
 }
-function findPaymentReviewPanel() {
-  return [...document.querySelectorAll("article.panel")].find((item) => item.querySelector("h2")?.textContent?.includes("결제 신청 검토"));
-}
-function addPaymentReviewDateFilter() {
-  const panel = findPaymentReviewPanel();
-  if (!panel || panel.querySelector(".payment-review-date-filter")) return;
-  const filter = document.createElement("div");
-  filter.className = "payment-review-date-filter";
-  filter.innerHTML = `
-    <label>신청일 조회<input type="date" data-payment-review-date value="${escapeHtml(paymentReviewDate)}" /></label>
-    <button class="primary" type="button" data-payment-review-filter>조회</button>
-    <button type="button" data-payment-review-clear>전체 보기</button>
-  `;
-  panel.querySelector(".bulk-actions")?.insertAdjacentElement("beforebegin", filter) || panel.querySelector(".panel-head")?.insertAdjacentElement("afterend", filter);
-}
-function filterPaymentReviewCards() {
-  const panel = findPaymentReviewPanel();
-  if (!panel) return;
-  addPaymentReviewDateFilter();
-  panel.querySelector("[data-payment-review-date]") && (panel.querySelector("[data-payment-review-date]").value = paymentReviewDate);
-  const cards = [...panel.querySelectorAll(".payment-review-card")];
-  let visibleCount = 0;
-  cards.forEach((card) => {
-    const show = !paymentReviewDate || cardRequestedDate(card) === paymentReviewDate;
-    card.style.display = show ? "" : "none";
-    if (!show) card.querySelector(".payment-select") && (card.querySelector(".payment-select").checked = false);
-    if (show) visibleCount += 1;
-  });
-  panel.querySelector(".payment-review-empty")?.remove();
-  if (!visibleCount && cards.length) {
-    const empty = document.createElement("div");
-    empty.className = "payment-review-empty";
-    empty.textContent = `${paymentReviewDate} 신청 건이 없습니다.`;
-    panel.querySelector(".payment-review-list")?.appendChild(empty);
-  }
-}
 function highlightPaymentDates() {
   document.querySelectorAll(".payment-review-card").forEach((card) => {
     if (card.querySelector(".payment-date-chip")) return;
@@ -214,36 +123,11 @@ function highlightPaymentDates() {
 }
 
 document.addEventListener("click", (event) => {
-  const reviewFilter = event.target.closest?.("[data-payment-review-filter]");
-  if (reviewFilter) {
-    event.preventDefault(); event.stopPropagation();
-    const panel = findPaymentReviewPanel();
-    paymentReviewDate = panel?.querySelector("[data-payment-review-date]")?.value || "";
-    filterPaymentReviewCards();
-    return;
-  }
-  const reviewClear = event.target.closest?.("[data-payment-review-clear]");
-  if (reviewClear) {
-    event.preventDefault(); event.stopPropagation();
-    paymentReviewDate = "";
-    filterPaymentReviewCards();
-    return;
-  }
-  const selectAll = event.target.closest?.("[data-select-pending-payments]");
-  if (selectAll) {
-    event.stopPropagation();
-    setTimeout(() => {
-      const panel = findPaymentReviewPanel();
-      panel?.querySelectorAll(".payment-review-card").forEach((card) => {
-        const checkbox = card.querySelector(".payment-select");
-        if (checkbox) checkbox.checked = card.style.display !== "none" && selectAll.checked;
-      });
-    }, 0);
-    return;
-  }
   const button = event.target.closest?.("[data-bank-transfer-download]");
   if (!button) return;
-  event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation();
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
   guardedDownload(button).catch((error) => alert(`이체 파일 생성 실패: ${error.message}`));
 }, true);
 
@@ -252,10 +136,8 @@ const observer = new MutationObserver(() => {
   window.__paymentGuardTimer = window.setTimeout(() => {
     addTransferNotice();
     highlightPaymentDates();
-    filterPaymentReviewCards();
-  }, 120);
+  }, 180);
 });
 observer.observe(document.body, { childList: true, subtree: true });
 addTransferNotice();
 highlightPaymentDates();
-filterPaymentReviewCards();
