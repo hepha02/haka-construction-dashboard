@@ -22,6 +22,13 @@ function findReviewPanel() {
   );
 }
 
+function syncRangeFromInputs(panel = findReviewPanel()) {
+  const startValue = panel?.querySelector("[data-payment-review-start]")?.value;
+  const endValue = panel?.querySelector("[data-payment-review-end]")?.value;
+  if (startValue !== undefined) paymentReviewRange.startDate = startValue;
+  if (endValue !== undefined) paymentReviewRange.endDate = endValue;
+}
+
 function ensureRangeFilter() {
   const panel = findReviewPanel();
   if (!panel) return null;
@@ -45,8 +52,8 @@ function ensureRangeFilter() {
 
   const startInput = filter.querySelector("[data-payment-review-start]");
   const endInput = filter.querySelector("[data-payment-review-end]");
-  if (startInput && document.activeElement !== startInput) startInput.value = paymentReviewRange.startDate;
-  if (endInput && document.activeElement !== endInput) endInput.value = paymentReviewRange.endDate;
+  if (startInput && !startInput.value && paymentReviewRange.startDate) startInput.value = paymentReviewRange.startDate;
+  if (endInput && !endInput.value && paymentReviewRange.endDate) endInput.value = paymentReviewRange.endDate;
   return panel;
 }
 
@@ -84,12 +91,19 @@ function applyPaymentReviewRange(force = false) {
 
 function runPaymentRangeSearch() {
   const panel = ensureRangeFilter();
-  paymentReviewRange = {
-    startDate: panel?.querySelector("[data-payment-review-start]")?.value || "",
-    endDate: panel?.querySelector("[data-payment-review-end]")?.value || ""
-  };
+  syncRangeFromInputs(panel);
   applyPaymentReviewRange(true);
 }
+
+document.addEventListener("input", (event) => {
+  if (!event.target.matches?.("[data-payment-review-start], [data-payment-review-end]")) return;
+  syncRangeFromInputs(event.target.closest("article.panel"));
+}, true);
+
+document.addEventListener("change", (event) => {
+  if (!event.target.matches?.("[data-payment-review-start], [data-payment-review-end]")) return;
+  syncRangeFromInputs(event.target.closest("article.panel"));
+}, true);
 
 document.addEventListener("click", (event) => {
   const search = event.target.closest?.("[data-payment-review-range-search]");
