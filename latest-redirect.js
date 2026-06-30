@@ -1,4 +1,4 @@
-const LATEST_VERSION = "store-doc-3";
+const LATEST_VERSION = "excel-amount-1";
 const params = new URLSearchParams(location.search);
 const currentVersion = params.get("v") || "";
 const oldVersion = currentVersion && currentVersion !== LATEST_VERSION;
