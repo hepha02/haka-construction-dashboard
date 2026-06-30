@@ -1,4 +1,4 @@
-const LATEST_VERSION = "bulk-margin-1";
+const LATEST_VERSION = "bulk-margin-2";
 const params = new URLSearchParams(location.search);
 const currentVersion = params.get("v") || "";
 const oldVersion = currentVersion && currentVersion !== LATEST_VERSION;
