@@ -3,9 +3,7 @@
   window.__hakaStoreDocumentActivation = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
-  const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
-  const FALLBACK_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
-  const API_KEY = FALLBACK_ANON;
+  const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
   const QUOTE_KEY = "haka_store_document_quotes_v1";
 
   let stores = [];
@@ -52,9 +50,9 @@
         api("/rest/v1/store_quotes?select=*").catch(() => [])
       ]);
       stores = Array.isArray(storeRows) ? storeRows : [];
-      quotes = Object.fromEntries([...(Array.isArray(quoteRows) ? quoteRows : [])].map((quote) => [quote.store_name, quote]));
+      quotes = Object.fromEntries((Array.isArray(quoteRows) ? quoteRows : []).map((quote) => [quote.store_name, quote]));
       Object.assign(quotes, readLocalQuotes());
-    } catch (error) {
+    } catch {
       Object.assign(quotes, readLocalQuotes());
     } finally {
       loading = false;
@@ -108,7 +106,8 @@
   function setCell(row, index, value) {
     const cell = row?.children?.[index];
     if (!cell) return;
-    cell.textContent = money(value);
+    const next = money(value);
+    if (cell.textContent !== next) cell.textContent = next;
     cell.classList.add("money");
   }
 
@@ -116,6 +115,10 @@
     const storeName = rowStoreName(row);
     if (!isDocumentTarget(storeName)) return;
     const quote = quotes[storeName] || computeQuote(storeName, rowMargin(row));
+    const signature = JSON.stringify([storeName, quote.quote_status, quote.margin_rate, quote.cost_total, quote.total_amount]);
+    if (row.dataset.storeDocSignature === signature) return;
+    row.dataset.storeDocSignature = signature;
+
     const statusCell = row.children?.[1];
     if (statusCell) statusCell.innerHTML = `<span class="badge blue">${esc(quote.quote_status || "문서 생성 대상")}</span>`;
     setCell(row, 2, quote.direct_cost || baseCost(storeName));
@@ -124,8 +127,10 @@
     setCell(row, 6, quote.supply_amount);
     setCell(row, 7, quote.vat_amount);
     setCell(row, 8, quote.total_amount);
-    row.querySelector("[data-quote-finalize]") && (row.querySelector("[data-quote-finalize]").textContent = "마진 저장");
-    row.querySelector("[data-contract-complete]") && (row.querySelector("[data-contract-complete]").textContent = "완료/문서 활성화");
+    const saveButton = row.querySelector("[data-quote-finalize]");
+    const completeButton = row.querySelector("[data-contract-complete]");
+    if (saveButton) saveButton.textContent = "마진 저장";
+    if (completeButton) completeButton.textContent = "완료/문서 활성화";
     row.querySelectorAll("[data-document-view]").forEach((button) => {
       button.disabled = false;
       button.classList.add("document-ready-button");
@@ -137,10 +142,11 @@
   }
 
   function addMissingCompletedRows() {
-    const title = clean(document.querySelector(".topbar h1")?.textContent || document.body.innerText.slice(0, 100));
-    if (!title.includes("매장별") && !document.body.innerText.includes("완료 매장")) return;
+    const pageText = clean(document.querySelector(".topbar h1")?.textContent || document.body.innerText.slice(0, 200));
+    if (!pageText.includes("매장별") && !document.body.innerText.includes("완료 매장")) return;
     const tbody = document.querySelector("table tbody");
     if (!tbody) return;
+
     completedStores().filter((store) => isDocumentTarget(store.name)).forEach((store) => {
       if (tableHasStore(store.name)) return;
       const quote = quotes[store.name] || computeQuote(store.name, 35);
@@ -166,8 +172,8 @@
   }
 
   function patchStoreManagement() {
-    document.querySelectorAll("table tbody tr").forEach(patchRow);
     addMissingCompletedRows();
+    document.querySelectorAll("table tbody tr").forEach(patchRow);
   }
 
   async function saveQuote(storeName, status, marginRate) {
@@ -224,6 +230,7 @@
     const storeName = rowStoreName(row);
     if (!isDocumentTarget(storeName)) return;
     quotes[storeName] = computeQuote(storeName, input.value, quotes[storeName]?.quote_status || "문서 생성 대상");
+    row.dataset.storeDocSignature = "";
     patchRow(row);
   }, true);
 
@@ -266,7 +273,7 @@
 
   const observer = new MutationObserver(() => {
     clearTimeout(window.__hakaStoreDocumentActivationTimer);
-    window.__hakaStoreDocumentActivationTimer = setTimeout(run, 250);
+    window.__hakaStoreDocumentActivationTimer = setTimeout(run, 350);
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   run();
