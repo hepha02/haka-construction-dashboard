@@ -1,4 +1,4 @@
-const LATEST_VERSION = "upload-name-1";
+const LATEST_VERSION = "payment-transfer-date-1";
 const params = new URLSearchParams(location.search);
 const currentVersion = params.get("v") || "";
 const oldVersion = currentVersion && currentVersion !== LATEST_VERSION;
