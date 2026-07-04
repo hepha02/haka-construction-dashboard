@@ -1,4 +1,4 @@
-const LATEST_VERSION = "bank-transfer-plain-2";
+const LATEST_VERSION = "bank-transfer-plain-3";
 const params = new URLSearchParams(location.search);
 const currentVersion = params.get("v") || "";
 const oldVersion = currentVersion && currentVersion !== LATEST_VERSION;
