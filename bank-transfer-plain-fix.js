@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "bank-transfer-plain-2";
+  const VERSION = "bank-transfer-plain-3";
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
   const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
 
@@ -7,21 +7,32 @@
     return String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
   }
 
-  function key(value) {
-    return clean(value).replace(/\s/g, "");
-  }
-
-  function digits(value) {
-    return clean(value).replace(/[^0-9]/g, "");
-  }
-
+  function key(value) { return clean(value).replace(/\s/g, ""); }
+  function digits(value) { return clean(value).replace(/[^0-9]/g, ""); }
   function money(value) {
     const number = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
     return Number.isFinite(number) ? Math.round(number) : 0;
   }
+  function today() { return new Date().toISOString().slice(0, 10); }
 
-  function today() {
-    return new Date().toISOString().slice(0, 10);
+  function nextDate(date) {
+    if (!date) return "";
+    const d = new Date(`${date}T00:00:00`);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function getAccessToken() {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const storageKey = localStorage.key(index) || "";
+      if (!storageKey.includes("auth-token")) continue;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(storageKey) || "{}");
+        const token = parsed.access_token || parsed.currentSession?.access_token || parsed.session?.access_token;
+        if (token) return token;
+      } catch (_) {}
+    }
+    return "";
   }
 
   function normalizeBankName(bank) {
@@ -37,18 +48,12 @@
 
   function dateInputs(root = document) {
     const panel = root.closest?.(".panel") || root;
-    const dates = [...panel.querySelectorAll("input[type='date']")];
-    if (dates.length < 2) {
-      const allDates = [...document.querySelectorAll("input[type='date']")];
-      return { start: allDates[0]?.value || "", end: allDates[1]?.value || allDates[0]?.value || "" };
-    }
+    let dates = [...panel.querySelectorAll("input[type='date']")];
+    if (dates.length < 2) dates = [...document.querySelectorAll("input[type='date']")];
     return { start: dates[0]?.value || "", end: dates[1]?.value || dates[0]?.value || "" };
   }
 
-  function dateOf(payment) {
-    return clean(payment.requested_at).slice(0, 10);
-  }
-
+  function dateOf(payment) { return clean(payment.requested_at).slice(0, 10); }
   function inRange(date, start, end) {
     if (!date) return false;
     if (start && date < start) return false;
@@ -69,11 +74,11 @@
     const vendor = clean(card.querySelector(".payment-summary-main span")?.textContent || "");
     const spans = [...card.querySelectorAll(".payment-summary-meta span")].map((span) => clean(span.textContent));
     const item = spans.find((span) => span && !span.includes("신청일") && !span.includes("승인") && !span.includes("반려") && !span.includes("대기")) || "";
-    return { store, vendor, item, date, raw: text };
+    return { store, vendor, item, date };
   }
 
   function selectedMatcher(cards) {
-    const infos = cards.map(cardInfo).filter((info) => info.store || info.vendor || info.item);
+    const infos = cards.map(cardInfo).filter((info) => info.store || info.vendor || info.item || info.date);
     if (!infos.length) return null;
     return (payment) => infos.some((info) => {
       const storeMatch = !info.store || key(payment.store) === key(info.store);
@@ -85,8 +90,9 @@
   }
 
   async function supabaseGet(path) {
+    const token = getAccessToken() || SUPABASE_KEY;
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` }
     });
     if (!response.ok) throw new Error(await response.text());
     return response.json();
@@ -96,8 +102,8 @@
     const params = new URLSearchParams();
     params.set("select", "id,store,vendor,payment_item,status,requested_at,amount,net_amount,vendor_bank,vendor_account_number,vendor_account_holder");
     params.set("status", "eq.승인");
-    if (start) params.set("requested_at", `gte.${start}`);
-    if (end) params.append("requested_at", `lte.${end}`);
+    if (start) params.append("requested_at", `gte.${start}`);
+    if (end) params.append("requested_at", `lt.${nextDate(end)}`);
     params.set("order", "id.asc");
     return supabaseGet(`payments?${params.toString()}`);
   }
@@ -149,6 +155,7 @@
     const button = event.target?.closest?.("[data-bank-transfer-download]");
     if (!button) return;
     event.preventDefault();
+    event.stopPropagation();
     event.stopImmediatePropagation();
 
     const { start, end } = dateInputs(button.closest(".panel") || document);
@@ -167,7 +174,8 @@
       }
       const records = makeRecords(payments, vendors);
       if (!records.length) {
-        alert("조회된 승인건은 있지만 계좌번호/예금주/금액 정보가 비어 있어 이체파일을 만들 수 없습니다. 업체계좌관리와 결제신청 계좌정보를 확인해 주세요.");
+        const missing = payments.length ? `${payments.length}건은 조회됐지만 계좌/금액 정보가 부족합니다.` : "조회 범위에 승인 완료 건이 없습니다.";
+        alert(`${missing} 날짜, 승인상태, 업체계좌 정보를 확인해 주세요.`);
         return;
       }
       download(records);
