@@ -1,8 +1,14 @@
 (() => {
-  const VERSION = "bank-transfer-plain-1";
+  const VERSION = "bank-transfer-plain-2";
+  const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
 
   function clean(value) {
-    return String(value ?? "").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
+    return String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
+  }
+
+  function key(value) {
+    return clean(value).replace(/\s/g, "");
   }
 
   function digits(value) {
@@ -10,139 +16,121 @@
   }
 
   function money(value) {
-    const number = Number(digits(value));
-    return Number.isFinite(number) ? number : 0;
+    const number = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(number) ? Math.round(number) : 0;
   }
 
   function today() {
     return new Date().toISOString().slice(0, 10);
   }
 
+  function normalizeBankName(bank) {
+    const text = clean(bank).replace(/\s/g, "");
+    const banks = [
+      ["신한", "신한"], ["국민", "국민"], ["기업", "기업"], ["우리", "우리"], ["하나", "하나"],
+      ["농협", "농협"], ["축협", "농협"], ["카카오", "카카오"], ["토스", "토스"], ["케이뱅크", "케이뱅크"],
+      ["부산", "부산"], ["대구", "아이엠뱅크"], ["아이엠", "아이엠뱅크"], ["새마을", "새마을금고"],
+      ["신협", "신협"], ["우체국", "우체국"], ["전북", "전북"], ["광주", "광주"], ["경남", "경남"], ["수협", "수협"]
+    ];
+    return banks.find(([needle]) => text.includes(needle))?.[1] || clean(bank).slice(0, 8);
+  }
+
   function dateInputs(root = document) {
-    const start = root.querySelector("[data-transfer-start], [data-payment-review-start], input[type='date']");
-    const dates = [...root.querySelectorAll("[data-transfer-start], [data-transfer-end], [data-payment-review-start], [data-payment-review-end], input[type='date']")];
-    const end = root.querySelector("[data-transfer-end], [data-payment-review-end]") || dates[1] || start;
-    return { start: start?.value || "", end: end?.value || "" };
+    const panel = root.closest?.(".panel") || root;
+    const dates = [...panel.querySelectorAll("input[type='date']")];
+    if (dates.length < 2) {
+      const allDates = [...document.querySelectorAll("input[type='date']")];
+      return { start: allDates[0]?.value || "", end: allDates[1]?.value || allDates[0]?.value || "" };
+    }
+    return { start: dates[0]?.value || "", end: dates[1]?.value || dates[0]?.value || "" };
+  }
+
+  function dateOf(payment) {
+    return clean(payment.requested_at).slice(0, 10);
   }
 
   function inRange(date, start, end) {
-    const value = clean(date).slice(0, 10);
-    if (!value) return true;
-    if (start && value < start) return false;
-    if (end && value > end) return false;
+    if (!date) return false;
+    if (start && date < start) return false;
+    if (end && date > end) return false;
     return true;
   }
 
-  function closestPaymentElement(node) {
-    return node?.closest?.(".payment-review-card, .payment-card, tr");
-  }
-
-  function labelValue(card, labels) {
-    const labelSet = labels.map((label) => label.replace(/\s/g, ""));
-    const blocks = [...card.querySelectorAll("div, p, li, td")];
-    for (const block of blocks) {
-      const text = clean(block.textContent);
-      const normalized = text.replace(/\s/g, "");
-      if (!labelSet.some((label) => normalized.includes(label))) continue;
-      const strong = block.querySelector("strong, b");
-      if (strong) return clean(strong.textContent);
-      for (const label of labels) {
-        const idx = text.indexOf(label);
-        if (idx >= 0) return clean(text.slice(idx + label.length).replace(/^[:：-]+/, ""));
-      }
-    }
-    return "";
-  }
-
-  function dateFromElement(el) {
-    const chip = clean(el.querySelector(".payment-date-chip, [data-payment-date]")?.textContent || "");
-    const fromChip = chip.match(/20\d{2}-\d{2}-\d{2}/)?.[0];
-    if (fromChip) return fromChip;
-    return clean(el.textContent).match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "";
-  }
-
-  function recordFromCard(card) {
-    const status = clean(card.querySelector(".badge, .status, [data-status]")?.textContent || card.textContent);
-    if (status.includes("반려") || status.includes("신청") || !status.includes("승인")) return null;
-    const bank = labelValue(card, ["입금은행", "은행"]);
-    const account = labelValue(card, ["입금계좌", "계좌번호", "계좌"]);
-    const holder = labelValue(card, ["예금주", "고객관리성명", "업체"]);
-    const amountText = labelValue(card, ["실지급액", "입금액", "이번 신청액", "금액"]) || clean(card.querySelector(".amount, [data-amount]")?.textContent || "");
-    const amount = money(amountText);
-    if (!bank || !account || !holder || !amount) return null;
-    return { bank, account: digits(account), amount, holder, date: dateFromElement(card) };
-  }
-
-  function tableIndexes(table) {
-    const headers = [...table.querySelectorAll("thead th")].map((th) => clean(th.textContent));
-    return {
-      bank: headers.findIndex((h) => h.includes("입금은행") || h === "은행"),
-      account: headers.findIndex((h) => h.includes("입금계좌") || h.includes("계좌번호")),
-      holder: headers.findIndex((h) => h.includes("예금주") || h.includes("고객관리성명")),
-      amount: headers.findIndex((h) => h.includes("입금액") || h.includes("실지급액") || h.includes("금액")),
-      status: headers.findIndex((h) => h.includes("상태")),
-      date: headers.findIndex((h) => h.includes("신청일") || h.includes("날짜"))
-    };
-  }
-
-  function recordFromRow(row) {
-    const table = row.closest("table");
-    const idx = tableIndexes(table);
-    const cells = [...row.children];
-    if (idx.bank < 0 || idx.account < 0 || idx.holder < 0 || idx.amount < 0) return null;
-    const status = idx.status >= 0 ? clean(cells[idx.status]?.textContent) : "승인";
-    if (status.includes("반려") || status.includes("신청")) return null;
-    const bank = clean(cells[idx.bank]?.textContent);
-    const account = clean(cells[idx.account]?.textContent);
-    const holder = clean(cells[idx.holder]?.textContent);
-    const amount = money(cells[idx.amount]?.textContent);
-    const date = idx.date >= 0 ? clean(cells[idx.date]?.textContent).slice(0, 10) : "";
-    if (!bank || !account || !holder || !amount) return null;
-    return { bank, account: digits(account), amount, holder, date };
-  }
-
-  function visible(el) {
-    const style = getComputedStyle(el);
-    return style.display !== "none" && style.visibility !== "hidden" && el.offsetParent !== null;
-  }
-
-  function selectedElements() {
+  function selectedCards() {
     return [...document.querySelectorAll(".transfer-payment-select:checked, .payment-select:checked")]
-      .map(closestPaymentElement)
+      .map((box) => box.closest(".payment-review-card, .payment-card, tr"))
       .filter(Boolean);
   }
 
-  function visiblePaymentElements() {
-    const cards = [...document.querySelectorAll(".payment-review-card, .payment-card")].filter(visible);
-    const rows = [...document.querySelectorAll("table tbody tr")].filter(visible);
-    return [...cards, ...rows];
+  function cardInfo(card) {
+    const text = clean(card.innerText || card.textContent || "");
+    const date = text.match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "";
+    const store = clean(card.querySelector(".payment-summary-main strong")?.textContent || card.querySelector("strong")?.textContent || "");
+    const vendor = clean(card.querySelector(".payment-summary-main span")?.textContent || "");
+    const spans = [...card.querySelectorAll(".payment-summary-meta span")].map((span) => clean(span.textContent));
+    const item = spans.find((span) => span && !span.includes("신청일") && !span.includes("승인") && !span.includes("반려") && !span.includes("대기")) || "";
+    return { store, vendor, item, date, raw: text };
   }
 
-  function collectRecords(button) {
-    const selected = selectedElements();
-    const elements = selected.length ? selected : visiblePaymentElements();
-    const { start, end } = dateInputs(button.closest(".panel") || document);
-    const records = [];
-    for (const el of elements) {
-      const record = el.matches("tr") ? recordFromRow(el) : recordFromCard(el);
-      if (!record) continue;
-      if (!inRange(record.date, start, end)) continue;
-      records.push(record);
-    }
-    const seen = new Set();
-    return records.filter((record) => {
-      const key = [record.bank, record.account, record.amount, record.holder, record.date].join("|");
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
+  function selectedMatcher(cards) {
+    const infos = cards.map(cardInfo).filter((info) => info.store || info.vendor || info.item);
+    if (!infos.length) return null;
+    return (payment) => infos.some((info) => {
+      const storeMatch = !info.store || key(payment.store) === key(info.store);
+      const vendorMatch = !info.vendor || key(payment.vendor) === key(info.vendor);
+      const itemMatch = !info.item || key(payment.payment_item).includes(key(info.item)) || key(info.item).includes(key(payment.payment_item));
+      const dateMatch = !info.date || dateOf(payment) === info.date;
+      return storeMatch && vendorMatch && itemMatch && dateMatch;
     });
+  }
+
+  async function supabaseGet(path) {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+
+  async function loadPayments(start, end) {
+    const params = new URLSearchParams();
+    params.set("select", "id,store,vendor,payment_item,status,requested_at,amount,net_amount,vendor_bank,vendor_account_number,vendor_account_holder");
+    params.set("status", "eq.승인");
+    if (start) params.set("requested_at", `gte.${start}`);
+    if (end) params.append("requested_at", `lte.${end}`);
+    params.set("order", "id.asc");
+    return supabaseGet(`payments?${params.toString()}`);
+  }
+
+  async function loadVendors() {
+    return supabaseGet("vendors?select=name,bank,account_number,account_holder");
+  }
+
+  function makeRecords(payments, vendors) {
+    const vendorMap = new Map(vendors.map((vendor) => [key(vendor.name), vendor]));
+    return payments.map((payment) => {
+      const vendor = vendorMap.get(key(payment.vendor)) || {};
+      const bank = payment.vendor_bank || vendor.bank || "";
+      const account = payment.vendor_account_number || vendor.account_number || "";
+      const holder = payment.vendor_account_holder || vendor.account_holder || payment.vendor || "";
+      const amount = money(payment.net_amount || payment.amount || 0);
+      return {
+        id: payment.id,
+        bank: normalizeBankName(bank),
+        account: digits(account),
+        amount,
+        holder: clean(holder),
+        payment,
+        ready: Boolean(bank && account && holder && amount > 0)
+      };
+    }).filter((record) => record.ready);
   }
 
   function download(records) {
     const rows = [["*입금은행", "*입금계좌", "*입금액", "고객관리성명"], ...records.map((record) => [
       record.bank,
       record.account,
-      String(Math.round(record.amount)),
+      String(record.amount),
       record.holder
     ])];
     const content = rows.map((row) => row.map(clean).join("\t")).join("\r\n");
@@ -157,17 +145,39 @@
     URL.revokeObjectURL(url);
   }
 
-  window.addEventListener("click", (event) => {
+  window.addEventListener("click", async (event) => {
     const button = event.target?.closest?.("[data-bank-transfer-download]");
     if (!button) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const records = collectRecords(button);
-    if (!records.length) {
-      alert("다운로드할 승인 완료 건이 없거나 계좌/금액 정보가 비어 있습니다. 날짜 조회 범위와 선택 건을 확인해 주세요.");
-      return;
+
+    const { start, end } = dateInputs(button.closest(".panel") || document);
+    const selected = selectedCards();
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = "이체 파일 생성 중";
+
+    try {
+      const [paymentsRaw, vendors] = await Promise.all([loadPayments(start, end), loadVendors()]);
+      let payments = paymentsRaw.filter((payment) => inRange(dateOf(payment), start, end));
+      const matchSelected = selectedMatcher(selected);
+      if (matchSelected) {
+        const selectedPayments = payments.filter(matchSelected);
+        if (selectedPayments.length) payments = selectedPayments;
+      }
+      const records = makeRecords(payments, vendors);
+      if (!records.length) {
+        alert("조회된 승인건은 있지만 계좌번호/예금주/금액 정보가 비어 있어 이체파일을 만들 수 없습니다. 업체계좌관리와 결제신청 계좌정보를 확인해 주세요.");
+        return;
+      }
+      download(records);
+      alert(`${records.length}건 이체파일을 생성했습니다. 금액 칸은 숫자만 들어가도록 수정했습니다.`);
+    } catch (error) {
+      alert(`이체파일 생성 중 오류가 났습니다: ${error.message || error}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
     }
-    download(records);
   }, true);
 
   console.info(`[HAKA] ${VERSION} loaded`);
