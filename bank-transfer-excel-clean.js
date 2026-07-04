@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "bank-transfer-excel-clean-1";
+  const VERSION = "bank-transfer-excel-clean-2";
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
   const compact = (value) => clean(value).replace(/\s/g, "");
@@ -23,8 +23,7 @@
 
   function dateInputs(root = document) {
     const panel = root.closest?.(".panel") || root;
-    let dates = [...panel.querySelectorAll("input[type='date'")];
-    if (!dates.length) dates = [...panel.querySelectorAll("input[type='date']")];
+    let dates = [...panel.querySelectorAll("input[type='date']")];
     if (dates.length < 2) dates = [...document.querySelectorAll("input[type='date']")];
     return { start: dates[0]?.value || "", end: dates[1]?.value || dates[0]?.value || "" };
   }
