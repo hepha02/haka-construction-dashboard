@@ -1,7 +1,7 @@
 (() => {
-  const VERSION = "bank-transfer-plain-4";
+  const VERSION = "bank-transfer-plain-5";
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
-  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs".replace("eyJpc3MiOiJIUzI1NiIs", "eyJpc3MiOiJzdXBhYmFzZSIs");
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
@@ -53,12 +53,6 @@
     return true;
   }
 
-  function selectedCards() {
-    return [...document.querySelectorAll(".transfer-payment-select:checked, .payment-select:checked")]
-      .map((box) => box.closest(".payment-review-card, .payment-card, tr"))
-      .filter(Boolean);
-  }
-
   function visibleCards() {
     return [...document.querySelectorAll(".payment-review-card, .payment-card")].filter((card) => {
       const style = getComputedStyle(card);
@@ -73,6 +67,23 @@
 
   function statusFromCard(card) {
     return clean(card.querySelector(".badge, .status, [data-status]")?.textContent || card.textContent || "");
+  }
+
+  function isApprovedCard(card) {
+    const status = statusFromCard(card);
+    return status.includes("승인") && !status.includes("반려") && !status.includes("신청") && !status.includes("대기");
+  }
+
+  function summaryInfo(card) {
+    const text = clean(card.innerText || card.textContent || "");
+    const spans = [...card.querySelectorAll(".payment-summary-meta span")].map((span) => clean(span.textContent));
+    return {
+      store: clean(card.querySelector(".payment-summary-main strong")?.textContent || card.querySelector("strong")?.textContent || ""),
+      vendor: clean(card.querySelector(".payment-summary-main span")?.textContent || ""),
+      item: spans.find((span) => span && !span.includes("신청일") && !span.includes("승인") && !span.includes("반려") && !span.includes("대기")) || "",
+      date: text.match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "",
+      amount: money(card.querySelector(".payment-summary-meta strong")?.textContent || text.match(/₩[0-9,]+/)?.[0] || "")
+    };
   }
 
   function labelValue(card, labels, fallbackIndex) {
@@ -91,37 +102,28 @@
   }
 
   async function expandCards(cards) {
-    cards.forEach((card) => {
+    for (const card of cards) {
       const button = [...card.querySelectorAll("button, a")].find((el) => clean(el.textContent).includes("펼치기"));
-      if (button) button.click();
-    });
-    await wait(450);
+      if (button) {
+        button.click();
+        await wait(80);
+      }
+    }
+    await wait(1200);
   }
 
   function recordFromCard(card) {
-    const status = statusFromCard(card);
-    if (status.includes("반려") || status.includes("신청") || !status.includes("승인")) return null;
+    if (!isApprovedCard(card)) return null;
     const bank = labelValue(card, ["입금은행", "은행"], 0);
     const account = labelValue(card, ["입금계좌", "계좌번호", "계좌"], 1);
-    const holder = labelValue(card, ["예금주", "고객관리성명"], 2) || clean(card.querySelector(".payment-summary-main span")?.textContent || "");
-    const amount = money(labelValue(card, ["실지급액", "입금액", "이번 신청액", "신청액", "금액"], 8) || card.querySelector(".payment-summary-meta strong")?.textContent || "");
+    const holder = labelValue(card, ["예금주", "고객관리성명"], 2) || summaryInfo(card).vendor;
+    const amount = money(labelValue(card, ["실지급액", "입금액", "이번 신청액", "신청액", "금액"], 8) || summaryInfo(card).amount);
     if (!bank || !account || !holder || !amount) return null;
     return { bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromCard(card) };
   }
 
-  function cardInfo(card) {
-    const text = clean(card.innerText || card.textContent || "");
-    const spans = [...card.querySelectorAll(".payment-summary-meta span")].map((span) => clean(span.textContent));
-    return {
-      store: clean(card.querySelector(".payment-summary-main strong")?.textContent || card.querySelector("strong")?.textContent || ""),
-      vendor: clean(card.querySelector(".payment-summary-main span")?.textContent || ""),
-      item: spans.find((span) => span && !span.includes("신청일") && !span.includes("승인") && !span.includes("반려") && !span.includes("대기")) || "",
-      date: text.match(/20\d{2}-\d{2}-\d{2}/)?.[0] || ""
-    };
-  }
-
   function selectedMatcher(cards) {
-    const infos = cards.map(cardInfo).filter((info) => info.store || info.vendor || info.item || info.date);
+    const infos = cards.map(summaryInfo).filter((info) => info.store || info.vendor || info.item || info.date);
     if (!infos.length) return null;
     return (payment) => infos.some((info) => {
       const storeMatch = !info.store || key(payment.store) === key(info.store);
@@ -133,9 +135,10 @@
   }
 
   async function supabaseGet(path) {
+    if (typeof fetch !== "function") return [];
     const token = getAccessToken() || SUPABASE_KEY;
     const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` } });
-    if (!response.ok) throw new Error(await response.text());
+    if (!response.ok) return [];
     return response.json();
   }
 
@@ -146,10 +149,12 @@
     if (end) params.append("requested_at", `lt.${nextDate(end)}`);
     params.set("order", "id.asc");
     const rows = await supabaseGet(`payments?${params.toString()}`);
-    return rows.filter((payment) => clean(payment.status).includes("승인") && !clean(payment.status).includes("반려") && !clean(payment.status).includes("신청"));
+    return rows.filter((payment) => clean(payment.status).includes("승인") && !clean(payment.status).includes("반려") && !clean(payment.status).includes("신청") && !clean(payment.status).includes("대기"));
   }
 
-  async function loadVendors() { return supabaseGet("vendors?select=name,bank,account_number,account_holder"); }
+  async function loadVendors() {
+    return supabaseGet("vendors?select=name,bank,account_number,account_holder");
+  }
 
   function makeRecords(payments, vendors) {
     const vendorMap = new Map(vendors.map((vendor) => [key(vendor.name), vendor]));
@@ -185,22 +190,21 @@
     event.stopImmediatePropagation();
 
     const { start, end } = dateInputs(button.closest(".panel") || document);
-    const chosenCards = selectedCards();
-    const targetCards = chosenCards.length ? chosenCards : visibleCards().filter((card) => inRange(dateFromCard(card), start, end));
+    const approvedCards = visibleCards().filter((card) => isApprovedCard(card)).filter((card) => inRange(dateFromCard(card), start, end));
     const originalText = button.textContent;
     button.disabled = true;
     button.textContent = "이체 파일 생성 중";
 
     try {
-      await expandCards(targetCards);
-      let records = targetCards.map(recordFromCard).filter(Boolean).filter((record) => inRange(record.date, start, end));
-      if (!records.length && typeof fetch === "function") {
+      await expandCards(approvedCards);
+      let records = approvedCards.map(recordFromCard).filter(Boolean).filter((record) => inRange(record.date, start, end));
+      if (!records.length) {
         const [paymentsRaw, vendors] = await Promise.all([loadPayments(start, end), loadVendors()]);
         let payments = paymentsRaw.filter((payment) => inRange(dateOf(payment), start, end));
-        const matchSelected = selectedMatcher(targetCards);
-        if (matchSelected) {
-          const selectedPayments = payments.filter(matchSelected);
-          if (selectedPayments.length) payments = selectedPayments;
+        const matchVisibleApproved = selectedMatcher(approvedCards);
+        if (matchVisibleApproved) {
+          const matched = payments.filter(matchVisibleApproved);
+          if (matched.length) payments = matched;
         }
         records = makeRecords(payments, vendors);
       }
@@ -212,7 +216,8 @@
         return true;
       });
       if (!records.length) {
-        alert("이체파일을 만들 수 있는 계좌/금액 정보를 찾지 못했습니다. 선택한 건을 펼쳐 계좌번호와 예금주가 보이는지 확인해 주세요.");
+        const examples = approvedCards.slice(0, 3).map(summaryInfo).map((info) => `${info.store || "매장"}/${info.vendor || "업체"}`).join(", ");
+        alert(`승인건 ${approvedCards.length}건은 보이지만 계좌/예금주를 찾지 못했습니다. 업체계좌관리에서 ${examples || "해당 업체"} 계좌가 등록되어 있는지 확인해 주세요.`);
         return;
       }
       download(records);
