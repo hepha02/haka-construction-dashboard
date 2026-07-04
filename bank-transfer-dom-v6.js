@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "bank-transfer-dom-v6";
+  const VERSION = "bank-transfer-dom-v7-excel-html";
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
   const digits = (value) => clean(value).replace(/[^0-9]/g, "");
@@ -8,6 +8,7 @@
     return Number.isFinite(number) ? Math.round(number) : 0;
   };
   const today = () => new Date().toISOString().slice(0, 10);
+  const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]);
 
   function normalizeBankName(bank) {
     const text = clean(bank).replace(/\s/g, "");
@@ -114,10 +115,20 @@
     };
   }
 
+  function cell(value, style = "") {
+    return `<td${style ? ` style="${style}"` : ""}>${esc(value)}</td>`;
+  }
+
   function download(records) {
-    const rows = [["*입금은행", "*입금계좌", "*입금액", "고객관리성명"], ...records.map((record) => [record.bank, record.account, String(record.amount), record.holder])];
-    const content = rows.map((row) => row.map(clean).join("\t")).join("\r\n");
-    const blob = new Blob([content], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const header = ["*입금은행", "*입금계좌", "*입금액", "고객관리성명"];
+    const bodyRows = records.map((record) => [
+      cell(record.bank),
+      cell(record.account, "mso-number-format:'\\@';"),
+      cell(String(record.amount), "mso-number-format:'0';"),
+      cell(record.holder)
+    ].join(""));
+    const html = `<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><style>td{font-family:Malgun Gothic,Arial,sans-serif;font-size:11pt;}</style></head><body><table><tr>${header.map((h) => cell(h)).join("")}</tr>${bodyRows.map((row) => `<tr>${row}</tr>`).join("")}</table></body></html>`;
+    const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
