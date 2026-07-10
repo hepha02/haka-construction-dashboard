@@ -1,7 +1,7 @@
 (() => {
-  const VERSION = "bank-transfer-real-xls-2-strict-scope";
-  if (window.__hakaBankTransferStrictV2) return;
-  window.__hakaBankTransferStrictV2 = true;
+  const VERSION = "bank-transfer-real-xls-3-row-aware";
+  if (window.__hakaBankTransferStrictV3) return;
+  window.__hakaBankTransferStrictV3 = true;
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
@@ -27,10 +27,10 @@
     return { start: dates[0]?.value || "", end: dates[1]?.value || dates[0]?.value || "" };
   }
 
-  function dateFromCard(card) {
-    const text = clean(card.innerText || card.textContent || "");
-    const labeled = text.match(/신청일\s*(20\d{2}-\d{2}-\d{2})/);
-    return labeled?.[1] || text.match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "";
+  function dateFromText(text) {
+    const body = clean(text);
+    const labeled = body.match(/신청일\s*(20\d{2}-\d{2}-\d{2})/);
+    return labeled?.[1] || body.match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "";
   }
 
   function inRange(date, start, end) {
@@ -41,29 +41,36 @@
   }
 
   function isVisible(el) {
+    if (!el) return false;
     const style = getComputedStyle(el);
     return style.display !== "none" && style.visibility !== "hidden" && el.offsetParent !== null;
   }
 
   function statusText(card) {
-    const candidates = [...card.querySelectorAll(".badge, .status, [data-status], span")].map((el) => clean(el.textContent));
-    return candidates.find((text) => text.includes("승인") || text.includes("반려") || text.includes("대기") || text.includes("신청")) || "";
+    const candidates = [...card.querySelectorAll(".badge, .status, [data-status], span, td")].map((el) => clean(el.textContent));
+    return candidates.find((text) => text.includes("승인") || text.includes("반려") || text.includes("대기") || text.includes("신청") || text.includes("다운로드 가능")) || "";
   }
 
   function isApproved(card) {
     const status = statusText(card);
-    return status.includes("승인") && !status.includes("대기") && !status.includes("신청") && !status.includes("반려");
+    return (status.includes("승인") || status.includes("다운로드 가능")) && !status.includes("대기") && !status.includes("신청") && !status.includes("반려");
   }
 
   function allCards() {
     return [...document.querySelectorAll(".payment-review-card, .payment-card")].filter(isVisible);
   }
 
-  function selectedCards() {
-    return [...document.querySelectorAll(".transfer-payment-select:checked, .transfer-select:checked")]
-      .map((box) => box.closest(".payment-review-card, .payment-card"))
-      .filter(Boolean)
-      .filter(isVisible);
+  function selectedTargets() {
+    const boxes = [...document.querySelectorAll(".transfer-payment-select:checked, .transfer-select:checked")].filter(isVisible);
+    const cards = [];
+    const rows = [];
+    boxes.forEach((box) => {
+      const card = box.closest(".payment-review-card, .payment-card");
+      const row = box.closest("tr");
+      if (card) cards.push(card);
+      else if (row) rows.push(row);
+    });
+    return { cards, rows, count: boxes.length };
   }
 
   async function expandCards(cards) {
@@ -78,7 +85,7 @@
         await wait(80);
       }
     }
-    await wait(300);
+    await wait(250);
   }
 
   function detailRows(card) {
@@ -113,13 +120,32 @@
     const holder = detailValue(rows, ["예금주", "고객관리성명"]) || summaryVendor(card);
     const amount = money(detailValue(rows, ["실지급액", "입금액", "이번신청액", "신청액", "금액"]) || summaryAmount(card));
     if (!bank || !account || !holder || !amount) return null;
-    return {
-      bank: normalizeBankName(bank),
-      account: digits(account),
-      amount,
-      holder: clean(holder),
-      date: dateFromCard(card)
-    };
+    return { bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromText(card.innerText || card.textContent || "") };
+  }
+
+  function recordFromRow(row) {
+    const cells = [...row.children].map((cell) => clean(cell.textContent));
+    if (cells.length < 8) return null;
+    const hasCheckboxColumn = !!row.querySelector(".transfer-select, .transfer-payment-select") || cells[0] === "";
+    const offset = hasCheckboxColumn ? 1 : 0;
+    const bank = cells[offset + 2] || "";
+    const account = cells[offset + 3] || "";
+    const holder = cells[offset + 4] || cells[offset + 1] || "";
+    const amount = money(cells[offset + 5] || "");
+    const status = cells[offset + 7] || "다운로드 가능";
+    if (status.includes("계좌정보") || status.includes("반려") || status.includes("대기") || status.includes("신청")) return null;
+    if (!bank || !account || !holder || !amount) return null;
+    return { bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromText(row.innerText || row.textContent || "") };
+  }
+
+  function uniqueRecords(records) {
+    const seen = new Set();
+    return records.filter((record) => {
+      const id = [record.bank, record.account, record.amount, record.holder].join("|");
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
   }
 
   function downloadRealExcel(records, label) {
@@ -127,9 +153,9 @@
       alert("엑셀 생성 모듈을 아직 불러오지 못했습니다. 새로고침 후 다시 눌러 주세요.");
       return;
     }
-    const rows = [["*입금은행", "*입금계좌", "*입금액", "고객관리성명"], ...records.map((record) => [record.bank, record.account, record.amount, record.holder])];
+    const rows = [["*입금은행", "*입금계좌", "*입금액", "고객관리성명"], ...records.map((record) => [record.bank, String(record.account), Number(record.amount), record.holder])];
     const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 12 }, { wch: 22 }, { wch: 14 }, { wch: 34 }];
+    ws["!cols"] = [{ wch: 12 }, { wch: 24 }, { wch: 14 }, { wch: 34 }];
     for (let row = 2; row <= rows.length; row += 1) {
       if (ws[`B${row}`]) {
         ws[`B${row}`].t = "s";
@@ -164,36 +190,34 @@
     event.stopImmediatePropagation();
 
     const { start, end } = dateInputs(button.closest(".panel") || document);
-    const checked = selectedCards();
+    const selected = selectedTargets();
     const hasDateScope = Boolean(start || end);
-    const isRangeDownload = button.dataset.bankTransferDownload === "range" || hasDateScope;
+    const isRangeDownload = button.dataset.bankTransferDownload === "range" || (hasDateScope && !selected.count);
 
-    if (!checked.length && !isRangeDownload) {
+    if (!selected.count && !isRangeDownload) {
       alert("이체 파일은 전체 승인건을 자동으로 내려받지 않습니다. 이체대상 체크박스를 선택하거나 날짜를 조회한 뒤 다운로드해 주세요.");
       return;
     }
+    if (isRangeDownload && (!start || !end)) {
+      alert("조회 결과 전체 다운로드는 시작일과 종료일을 모두 선택한 뒤 사용할 수 있습니다.");
+      return;
+    }
 
-    let cards = checked.length ? checked : allCards().filter((card) => inRange(dateFromCard(card), start, end));
-    cards = cards.filter(isApproved);
     const oldText = button.textContent;
     button.disabled = true;
     button.textContent = "이체 파일 생성 중";
     try {
+      let records = selected.rows.map(recordFromRow).filter(Boolean);
+      let cards = selected.cards;
+      if (!selected.count) cards = allCards().filter((card) => inRange(dateFromText(card.innerText || card.textContent || ""), start, end));
       await expandCards(cards);
-      cards = (checked.length ? checked : allCards().filter((card) => inRange(dateFromCard(card), start, end))).filter(isApproved);
-      let records = cards.map(recordFromCard).filter(Boolean);
-      const seen = new Set();
-      records = records.filter((record) => {
-        const id = [record.bank, record.account, record.amount, record.holder].join("|");
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return true;
-      });
+      records = records.concat(cards.map(recordFromCard).filter(Boolean));
+      records = uniqueRecords(records);
       if (!records.length) {
-        alert(`선택/조회 범위 안에 이체 가능한 승인건이 없습니다. 날짜와 체크박스, 계좌 정보를 확인해 주세요.`);
+        alert("선택/조회 범위 안에 이체 가능한 승인건을 찾지 못했습니다. 날짜, 체크박스, 계좌정보를 확인해 주세요.");
         return;
       }
-      const label = checked.length ? `선택_${today()}` : `${start || "처음"}_${end || start || "오늘"}`;
+      const label = selected.count ? `선택_${today()}` : `${start}_${end}`;
       downloadRealExcel(records, label);
       alert(`${records.length}건 이체파일을 생성했습니다. 전체 승인건이 아니라 선택/날짜 범위만 반영했습니다.`);
     } finally {
