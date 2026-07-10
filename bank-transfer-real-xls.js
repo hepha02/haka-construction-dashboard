@@ -1,5 +1,8 @@
 (() => {
-  const VERSION = "bank-transfer-real-xls-1";
+  const VERSION = "bank-transfer-real-xls-2-strict-scope";
+  if (window.__hakaBankTransferStrictV2) return;
+  window.__hakaBankTransferStrictV2 = true;
+
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
   const compact = (value) => clean(value).replace(/\s/g, "");
@@ -25,11 +28,13 @@
   }
 
   function dateFromCard(card) {
-    return clean(card.innerText || card.textContent || "").match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "";
+    const text = clean(card.innerText || card.textContent || "");
+    const labeled = text.match(/신청일\s*(20\d{2}-\d{2}-\d{2})/);
+    return labeled?.[1] || text.match(/20\d{2}-\d{2}-\d{2}/)?.[0] || "";
   }
 
   function inRange(date, start, end) {
-    if (!date) return true;
+    if (!date) return false;
     if (start && date < start) return false;
     if (end && date > end) return false;
     return true;
@@ -55,7 +60,7 @@
   }
 
   function selectedCards() {
-    return [...document.querySelectorAll(".transfer-payment-select:checked, .payment-select:checked")]
+    return [...document.querySelectorAll(".transfer-payment-select:checked, .transfer-select:checked")]
       .map((box) => box.closest(".payment-review-card, .payment-card"))
       .filter(Boolean)
       .filter(isVisible);
@@ -63,13 +68,17 @@
 
   async function expandCards(cards) {
     for (const card of cards) {
+      if (card.tagName === "DETAILS" && !card.open) {
+        card.open = true;
+        continue;
+      }
       const opener = [...card.querySelectorAll("button, a")].find((el) => clean(el.textContent).includes("펼치기"));
       if (opener) {
         opener.click();
         await wait(80);
       }
     }
-    await wait(1000);
+    await wait(300);
   }
 
   function detailRows(card) {
@@ -113,9 +122,9 @@
     };
   }
 
-  function downloadRealExcel(records) {
+  function downloadRealExcel(records, label) {
     if (!window.XLSX) {
-      alert("엑셀 생성 모듈을 아직 불러오지 못했습니다. 잠시 후 다시 눌러 주세요.");
+      alert("엑셀 생성 모듈을 아직 불러오지 못했습니다. 새로고침 후 다시 눌러 주세요.");
       return;
     }
     const rows = [["*입금은행", "*입금계좌", "*입금액", "고객관리성명"], ...records.map((record) => [record.bank, record.account, record.amount, record.holder])];
@@ -140,7 +149,7 @@
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `은행대량이체_${today()}_${records.length}건.xls`;
+    link.download = `은행대량이체_${label || today()}_${records.length}건.xls`;
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -156,13 +165,22 @@
 
     const { start, end } = dateInputs(button.closest(".panel") || document);
     const checked = selectedCards();
-    let cards = (checked.length ? checked : allCards()).filter(isApproved).filter((card) => inRange(dateFromCard(card), start, end));
+    const hasDateScope = Boolean(start || end);
+    const isRangeDownload = button.dataset.bankTransferDownload === "range" || hasDateScope;
+
+    if (!checked.length && !isRangeDownload) {
+      alert("이체 파일은 전체 승인건을 자동으로 내려받지 않습니다. 이체대상 체크박스를 선택하거나 날짜를 조회한 뒤 다운로드해 주세요.");
+      return;
+    }
+
+    let cards = checked.length ? checked : allCards().filter((card) => inRange(dateFromCard(card), start, end));
+    cards = cards.filter(isApproved);
     const oldText = button.textContent;
     button.disabled = true;
     button.textContent = "이체 파일 생성 중";
     try {
       await expandCards(cards);
-      cards = (checked.length ? checked : allCards()).filter(isApproved).filter((card) => inRange(dateFromCard(card), start, end));
+      cards = (checked.length ? checked : allCards().filter((card) => inRange(dateFromCard(card), start, end))).filter(isApproved);
       let records = cards.map(recordFromCard).filter(Boolean);
       const seen = new Set();
       records = records.filter((record) => {
@@ -172,11 +190,12 @@
         return true;
       });
       if (!records.length) {
-        alert(`승인건 ${cards.length}건은 보이지만 계좌/금액을 읽지 못했습니다. 펼친 상세에 입금은행, 입금계좌, 예금주, 실지급액이 보이는지 확인해 주세요.`);
+        alert(`선택/조회 범위 안에 이체 가능한 승인건이 없습니다. 날짜와 체크박스, 계좌 정보를 확인해 주세요.`);
         return;
       }
-      downloadRealExcel(records);
-      alert(`${records.length}건 이체파일을 생성했습니다.`);
+      const label = checked.length ? `선택_${today()}` : `${start || "처음"}_${end || start || "오늘"}`;
+      downloadRealExcel(records, label);
+      alert(`${records.length}건 이체파일을 생성했습니다. 전체 승인건이 아니라 선택/날짜 범위만 반영했습니다.`);
     } finally {
       button.disabled = false;
       button.textContent = oldText;
