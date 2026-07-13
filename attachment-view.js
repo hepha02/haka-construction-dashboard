@@ -1,12 +1,14 @@
 (() => {
-  const VERSION = "attachment-view-1";
-  if (window.__hakaAttachmentView) return;
-  window.__hakaAttachmentView = true;
+  const VERSION = "attachment-view-2-group-download";
+  if (window.__hakaAttachmentViewV2) return;
+  window.__hakaAttachmentViewV2 = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const JSZIP_URL = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
   const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]);
+  const safeName = (value) => String(value || "파일").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 90) || "파일";
+  const today = () => new Date().toISOString().slice(0, 10);
   const sizeLabel = (size) => {
     const value = Number(size || 0);
     if (!value) return "-";
@@ -14,6 +16,9 @@
     if (value >= 1024) return `${Math.round(value / 1024)}KB`;
     return `${value}B`;
   };
+
+  let cachedRows = [];
+  let busyDownload = false;
 
   function getClient() {
     const factory = window.supabase?.createClient || window.createClient;
@@ -29,6 +34,7 @@
         category,
         name: file.name || "파일",
         size: sizeLabel(file.size),
+        rawSize: Number(file.size || 0),
         date,
         url: file.url || ""
       });
@@ -66,7 +72,93 @@
       addFiles(rows, "공사 시작", item.store_name || "-", "도면", item.drawing_files, date);
       addFiles(rows, "공사 시작", item.store_name || "-", "기초 사진", item.base_photo_files, date);
     });
+    cachedRows = rows;
     return rows;
+  }
+
+  function groupedRows(rows) {
+    const order = ["견적서", "세금계산서", "주민등록증", "사업자등록증", "통장사본", "도면", "기초 사진"];
+    return order
+      .map((category) => ({ category, rows: rows.filter((row) => row.category === category && row.url) }))
+      .filter((group) => group.rows.length);
+  }
+
+  function groupButtons(rows) {
+    const groups = groupedRows(rows);
+    if (!groups.length) return "";
+    return `<div class="bulk-actions" data-attachment-actions>
+      ${groups.map((group) => `<button type="button" data-attachment-download="${esc(group.category)}">${esc(group.category)} ${group.rows.length}개 내려받기</button>`).join("")}
+    </div>`;
+  }
+
+  async function ensureZip() {
+    if (window.JSZip) return window.JSZip;
+    await new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${JSZIP_URL}"]`);
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = JSZIP_URL;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    return window.JSZip;
+  }
+
+  async function downloadGroup(category, button) {
+    if (busyDownload) return;
+    const files = cachedRows.filter((row) => row.category === category && row.url);
+    if (!files.length) {
+      alert(`${category} 파일이 없습니다.`);
+      return;
+    }
+    busyDownload = true;
+    const oldText = button?.textContent || "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = `${category} 압축 중`;
+    }
+    try {
+      const JSZip = await ensureZip();
+      const zip = new JSZip();
+      let success = 0;
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const response = await fetch(file.url, { mode: "cors" });
+        if (!response.ok) continue;
+        const blob = await response.blob();
+        const ext = safeName(file.name).includes(".") ? "" : ".bin";
+        const name = `${String(index + 1).padStart(3, "0")}_${safeName(file.owner)}_${safeName(file.name)}${ext}`;
+        zip.file(name, blob);
+        success += 1;
+      }
+      if (!success) {
+        alert(`${category} 파일을 내려받지 못했습니다. 파일 열기는 가능하지만 일괄 압축 다운로드 권한이 막혀 있을 수 있습니다.`);
+        return;
+      }
+      const content = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(content);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `첨부파일_${safeName(category)}_${today()}_${success}개.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      alert(`${category} ${success}개 파일을 ZIP으로 만들었습니다.`);
+    } catch (error) {
+      alert(`일괄 다운로드 실패: ${error.message}`);
+    } finally {
+      busyDownload = false;
+      if (button) {
+        button.disabled = false;
+        button.textContent = oldText;
+      }
+    }
   }
 
   function table(rows) {
@@ -114,7 +206,8 @@
       const constructionCount = rows.filter((row) => row.source === "공사 시작").length;
       host.innerHTML = `<article class="panel">
         <div class="panel-head"><h2>첨부 파일 보기</h2><div class="row-actions"><button>결제 ${paymentCount}개</button><button>업체 ${vendorCount}개</button><button>공사 ${constructionCount}개</button></div></div>
-        <div class="notice">파일명을 누르면 새 창에서 열립니다. 한글 파일명 업로드도 확인할 수 있습니다.</div>
+        <div class="notice">종류별 내려받기를 누르면 해당 종류의 파일만 ZIP으로 묶어 받습니다. 파일명은 매장/업체명이 앞에 붙도록 정리했습니다.</div>
+        ${groupButtons(rows)}
         ${table(rows)}
       </article>`;
     } catch (error) {
@@ -136,6 +229,13 @@
   }
 
   document.addEventListener("click", (event) => {
+    const downloadButton = event.target.closest?.("[data-attachment-download]");
+    if (downloadButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      downloadGroup(downloadButton.dataset.attachmentDownload, downloadButton);
+      return;
+    }
     const button = event.target.closest?.("[data-attachment-view]");
     if (!button) return;
     event.preventDefault();
