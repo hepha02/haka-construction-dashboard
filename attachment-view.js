@@ -1,11 +1,12 @@
 (() => {
-  const VERSION = "attachment-view-2-group-download";
-  if (window.__hakaAttachmentViewV2) return;
-  window.__hakaAttachmentViewV2 = true;
+  const VERSION = "attachment-view-3-safe-history";
+  if (window.__hakaAttachmentViewV3) return;
+  window.__hakaAttachmentViewV3 = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
   const JSZIP_URL = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
+  const LOG_KEY = "haka_attachment_download_log_v1";
   const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[char]);
   const safeName = (value) => String(value || "파일").replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 90) || "파일";
   const today = () => new Date().toISOString().slice(0, 10);
@@ -19,6 +20,41 @@
 
   let cachedRows = [];
   let busyDownload = false;
+
+  function readLog() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(LOG_KEY) || "{}");
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeLog(log) {
+    try {
+      localStorage.setItem(LOG_KEY, JSON.stringify(log));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function fileKey(row) {
+    return [row.category, row.url || row.name || ""].join("|");
+  }
+
+  function isDownloaded(row) {
+    return Boolean(readLog()[fileKey(row)]);
+  }
+
+  function markRowsDownloaded(rows) {
+    const log = readLog();
+    const now = new Date().toISOString();
+    rows.filter((row) => row.url).forEach((row) => {
+      log[fileKey(row)] = { category: row.category, owner: row.owner, name: row.name, url: row.url, downloaded_at: now };
+    });
+    return writeLog(log);
+  }
 
   function getClient() {
     const factory = window.supabase?.createClient || window.createClient;
@@ -79,15 +115,24 @@
   function groupedRows(rows) {
     const order = ["견적서", "세금계산서", "주민등록증", "사업자등록증", "통장사본", "도면", "기초 사진"];
     return order
-      .map((category) => ({ category, rows: rows.filter((row) => row.category === category && row.url) }))
-      .filter((group) => group.rows.length);
+      .map((category) => {
+        const all = rows.filter((row) => row.category === category && row.url);
+        const fresh = all.filter((row) => !isDownloaded(row));
+        const done = all.length - fresh.length;
+        return { category, all, fresh, done };
+      })
+      .filter((group) => group.all.length);
   }
 
   function groupButtons(rows) {
     const groups = groupedRows(rows);
     if (!groups.length) return "";
     return `<div class="bulk-actions" data-attachment-actions>
-      ${groups.map((group) => `<button type="button" data-attachment-download="${esc(group.category)}">${esc(group.category)} ${group.rows.length}개 내려받기</button>`).join("")}
+      ${groups.map((group) => `
+        <button type="button" data-attachment-download="${esc(group.category)}" data-attachment-mode="fresh">${esc(group.category)} 신규 ${group.fresh.length}개 내려받기</button>
+        <button type="button" data-attachment-download="${esc(group.category)}" data-attachment-mode="all">전체 ${group.all.length}개</button>
+        <button type="button" data-attachment-mark="${esc(group.category)}">완료 처리 ${group.done}/${group.all.length}</button>
+      `).join("")}
     </div>`;
   }
 
@@ -109,11 +154,12 @@
     return window.JSZip;
   }
 
-  async function downloadGroup(category, button) {
+  async function downloadGroup(category, mode, button) {
     if (busyDownload) return;
-    const files = cachedRows.filter((row) => row.category === category && row.url);
+    const allFiles = cachedRows.filter((row) => row.category === category && row.url);
+    const files = mode === "all" ? allFiles : allFiles.filter((row) => !isDownloaded(row));
     if (!files.length) {
-      alert(`${category} 파일이 없습니다.`);
+      alert(mode === "all" ? `${category} 파일이 없습니다.` : `${category} 신규 파일이 없습니다. 이미 완료 처리된 파일은 제외했습니다.`);
       return;
     }
     busyDownload = true;
@@ -125,7 +171,7 @@
     try {
       const JSZip = await ensureZip();
       const zip = new JSZip();
-      let success = 0;
+      const downloadedRows = [];
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         const response = await fetch(file.url, { mode: "cors" });
@@ -134,9 +180,9 @@
         const ext = safeName(file.name).includes(".") ? "" : ".bin";
         const name = `${String(index + 1).padStart(3, "0")}_${safeName(file.owner)}_${safeName(file.name)}${ext}`;
         zip.file(name, blob);
-        success += 1;
+        downloadedRows.push(file);
       }
-      if (!success) {
+      if (!downloadedRows.length) {
         alert(`${category} 파일을 내려받지 못했습니다. 파일 열기는 가능하지만 일괄 압축 다운로드 권한이 막혀 있을 수 있습니다.`);
         return;
       }
@@ -144,12 +190,14 @@
       const url = URL.createObjectURL(content);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `첨부파일_${safeName(category)}_${today()}_${success}개.zip`;
+      link.download = `첨부파일_${safeName(category)}_${mode === "all" ? "전체" : "신규"}_${today()}_${downloadedRows.length}개.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      alert(`${category} ${success}개 파일을 ZIP으로 만들었습니다.`);
+      markRowsDownloaded(downloadedRows);
+      alert(`${category} ${downloadedRows.length}개 파일을 ZIP으로 만들고 다운로드 완료 처리했습니다.`);
+      renderAttachmentView();
     } catch (error) {
       alert(`일괄 다운로드 실패: ${error.message}`);
     } finally {
@@ -161,21 +209,38 @@
     }
   }
 
+  function markCategory(category) {
+    const files = cachedRows.filter((row) => row.category === category && row.url);
+    if (!files.length) {
+      alert(`${category} 파일이 없습니다.`);
+      return;
+    }
+    const ok = confirm(`${category} ${files.length}개를 다운로드 완료로 표시할까요? 이미 따로 내려받은 파일을 다음 신규 다운로드에서 제외할 때 사용합니다.`);
+    if (!ok) return;
+    markRowsDownloaded(files);
+    alert(`${category} ${files.length}개를 완료 처리했습니다. 다음부터 신규 다운로드에서는 제외됩니다.`);
+    renderAttachmentView();
+  }
+
   function table(rows) {
     if (!rows.length) {
       return `<div class="empty-panel"><p>아직 업로드된 첨부 파일이 없습니다.</p></div>`;
     }
     return `<div class="table-wrap"><table>
-      <thead><tr><th>구분</th><th>대상</th><th>파일 종류</th><th>파일명</th><th>크기</th><th>등록일</th><th>보기</th></tr></thead>
-      <tbody>${rows.map((row) => `<tr>
-        <td>${esc(row.source)}</td>
-        <td>${esc(row.owner)}</td>
-        <td>${esc(row.category)}</td>
-        <td>${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noreferrer">${esc(row.name)}</a>` : esc(row.name)}</td>
-        <td>${esc(row.size)}</td>
-        <td>${esc(row.date || "-")}</td>
-        <td>${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noreferrer">열기</a>` : "-"}</td>
-      </tr>`).join("")}</tbody>
+      <thead><tr><th>상태</th><th>구분</th><th>대상</th><th>파일 종류</th><th>파일명</th><th>크기</th><th>등록일</th><th>보기</th></tr></thead>
+      <tbody>${rows.map((row) => {
+        const done = isDownloaded(row);
+        return `<tr>
+          <td><span class="badge ${done ? "green" : "amber"}">${done ? "다운로드 완료" : "신규"}</span></td>
+          <td>${esc(row.source)}</td>
+          <td>${esc(row.owner)}</td>
+          <td>${esc(row.category)}</td>
+          <td>${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noreferrer">${esc(row.name)}</a>` : esc(row.name)}</td>
+          <td>${esc(row.size)}</td>
+          <td>${esc(row.date || "-")}</td>
+          <td>${row.url ? `<a href="${esc(row.url)}" target="_blank" rel="noreferrer">열기</a>` : "-"}</td>
+        </tr>`;
+      }).join("")}</tbody>
     </table></div>`;
   }
 
@@ -197,16 +262,17 @@
       host.className = "grid";
       shell.appendChild(host);
     }
-    host.innerHTML = `<article class="panel"><div class="panel-head"><h2>첨부 파일 보기</h2><button>불러오는 중</button></div><div class="notice">결제 증빙, 업체 서류, 공사 시작 도면/사진을 한 화면에서 확인합니다.</div></article>`;
+    host.innerHTML = `<article class="panel"><div class="panel-head"><h2>첨부 파일 보기</h2><button>불러오는 중</button></div><div class="notice">첨부 파일 목록을 불러오고 있습니다.</div></article>`;
 
     try {
       const rows = await loadRows();
       const paymentCount = rows.filter((row) => row.source === "결제 신청").length;
       const vendorCount = rows.filter((row) => row.source === "업체 계좌").length;
       const constructionCount = rows.filter((row) => row.source === "공사 시작").length;
+      const freshCount = rows.filter((row) => row.url && !isDownloaded(row)).length;
       host.innerHTML = `<article class="panel">
-        <div class="panel-head"><h2>첨부 파일 보기</h2><div class="row-actions"><button>결제 ${paymentCount}개</button><button>업체 ${vendorCount}개</button><button>공사 ${constructionCount}개</button></div></div>
-        <div class="notice">종류별 내려받기를 누르면 해당 종류의 파일만 ZIP으로 묶어 받습니다. 파일명은 매장/업체명이 앞에 붙도록 정리했습니다.</div>
+        <div class="panel-head"><h2>첨부 파일 보기</h2><div class="row-actions"><button>신규 ${freshCount}개</button><button>결제 ${paymentCount}개</button><button>업체 ${vendorCount}개</button><button>공사 ${constructionCount}개</button></div></div>
+        <div class="notice">신규 내려받기는 이미 완료 처리된 파일을 제외합니다. 예전에 따로 받은 세금계산서는 세금계산서의 완료 처리 버튼을 눌러 다음 다운로드에서 제외하세요.</div>
         ${groupButtons(rows)}
         ${table(rows)}
       </article>`;
@@ -229,11 +295,18 @@
   }
 
   document.addEventListener("click", (event) => {
+    const markButton = event.target.closest?.("[data-attachment-mark]");
+    if (markButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      markCategory(markButton.dataset.attachmentMark);
+      return;
+    }
     const downloadButton = event.target.closest?.("[data-attachment-download]");
     if (downloadButton) {
       event.preventDefault();
       event.stopPropagation();
-      downloadGroup(downloadButton.dataset.attachmentDownload, downloadButton);
+      downloadGroup(downloadButton.dataset.attachmentDownload, downloadButton.dataset.attachmentMode || "fresh", downloadButton);
       return;
     }
     const button = event.target.closest?.("[data-attachment-view]");
