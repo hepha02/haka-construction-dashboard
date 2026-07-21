@@ -59,7 +59,7 @@ function statusButtonsHtml() {
     ["이체전표 생성됨", "이체 제외"],
     ["반려", "반려"]
   ];
-  return `<div class="payment-review-status-tabs">
+  return `<div class="payment-review-status-tabs" role="group" aria-label="결제 상태 구분">
     ${items.map(([value, label]) => `<button type="button" data-payment-review-status="${value}" class="${paymentReviewStatus === value ? "active" : ""}">${label}</button>`).join("")}
   </div>`;
 }
@@ -107,16 +107,10 @@ function applyPaymentReviewRange(force = false) {
   try {
     const cards = [...panel.querySelectorAll(".payment-review-card")];
     let visibleCount = 0;
-    const statusCounts = { all: 0, 신청: 0, 승인: 0, 이체전표: 0, 반려: 0 };
     const useDateFilter = paymentReviewRange.startDate || paymentReviewRange.endDate;
     cards.forEach((card) => {
       const date = requestedDateFromCard(card);
       const status = statusFromCard(card);
-      statusCounts.all += 1;
-      if (matchesPaymentReviewStatus.call({ paymentReviewStatus: "신청" }, status) || status.includes("신청") || status.includes("대기")) statusCounts.신청 += 1;
-      if (status === "승인" || status === "다운로드 가능") statusCounts.승인 += 1;
-      if (status.includes("이체전표") || status.includes("이체완료")) statusCounts.이체전표 += 1;
-      if (status.includes("반려")) statusCounts.반려 += 1;
       const dateOk = !useDateFilter || inPaymentReviewRange(date);
       const statusOk = matchesPaymentReviewStatus(status);
       const show = dateOk && statusOk;
@@ -212,26 +206,28 @@ document.addEventListener("click", (event) => {
 
 const style = document.createElement("style");
 style.textContent = `
-  .payment-review-range-filter {
+  article.panel .payment-review-range-filter {
     box-sizing: border-box !important;
     width: 100% !important;
-    display: grid !important;
-    gap: 10px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
     margin: 10px 0 14px !important;
     padding: 12px !important;
     border: 1px solid #d9e7e2 !important;
     border-radius: 8px !important;
     background: #f8fbfa !important;
     position: relative !important;
-    z-index: 50 !important;
+    z-index: 20 !important;
   }
-  .payment-review-range-row {
+  article.panel .payment-review-range-row {
     display: grid !important;
-    grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) 108px 120px !important;
+    grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) 108px 120px !important;
     gap: 10px !important;
     align-items: end !important;
+    width: 100% !important;
   }
-  .payment-review-range-filter label {
+  article.panel .payment-review-range-filter label {
     min-width: 0 !important;
     display: grid !important;
     gap: 6px !important;
@@ -241,9 +237,10 @@ style.textContent = `
     font-weight: 900 !important;
     line-height: 1.2 !important;
   }
-  .payment-review-range-filter input,
-  .payment-review-range-filter button {
+  article.panel .payment-review-range-filter input,
+  article.panel .payment-review-range-row button {
     box-sizing: border-box !important;
+    width: 100% !important;
     height: 44px !important;
     min-height: 44px !important;
     margin: 0 !important;
@@ -254,19 +251,51 @@ style.textContent = `
     white-space: nowrap !important;
     pointer-events: auto !important;
     touch-action: manipulation !important;
-    position: relative !important;
-    z-index: 60 !important;
     cursor: pointer !important;
   }
-  .payment-review-range-filter input { width: 100% !important; border: 1px solid #dce2ea !important; color: #162033 !important; background: #ffffff !important; }
-  .payment-review-range-filter button { border: 1px solid #d9dfe8 !important; color: #253247 !important; background: #ffffff !important; }
-  .payment-review-range-filter button.primary { border-color: #237c63 !important; color: #ffffff !important; background: #237c63 !important; }
-  .payment-review-status-tabs { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-  .payment-review-status-tabs button { height: 38px !important; min-height: 38px !important; }
-  .payment-review-status-tabs button.active { border-color: #237c63 !important; color: #116447 !important; background: #e6f5ee !important; }
-  .payment-review-filter-summary { color: #526074 !important; font-size: 12px !important; font-weight: 900 !important; }
-  @media (max-width: 980px) { .payment-review-range-row { grid-template-columns: 1fr 1fr !important; } }
-  @media (max-width: 720px) { .payment-review-range-row { grid-template-columns: 1fr !important; } .payment-review-range-filter input, .payment-review-range-filter button { width: 100% !important; height: 46px !important; min-height: 46px !important; font-size: 16px !important; } }
+  article.panel .payment-review-range-filter input { border: 1px solid #dce2ea !important; color: #162033 !important; background: #ffffff !important; }
+  article.panel .payment-review-range-row button { border: 1px solid #d9dfe8 !important; color: #253247 !important; background: #ffffff !important; }
+  article.panel .payment-review-range-row button.primary { border-color: #237c63 !important; color: #ffffff !important; background: #237c63 !important; }
+  article.panel .payment-review-status-tabs {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    position: static !important;
+  }
+  article.panel .payment-review-status-tabs button {
+    flex: 0 1 auto !important;
+    width: auto !important;
+    min-width: 76px !important;
+    max-width: none !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 12px !important;
+    margin: 0 !important;
+    border: 1px solid #d9dfe8 !important;
+    border-radius: 8px !important;
+    color: #253247 !important;
+    background: #ffffff !important;
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+    position: static !important;
+    transform: none !important;
+  }
+  article.panel .payment-review-status-tabs button.active { border-color: #237c63 !important; color: #116447 !important; background: #e6f5ee !important; }
+  article.panel .payment-review-filter-summary { color: #526074 !important; font-size: 12px !important; font-weight: 900 !important; }
+  @media (max-width: 980px) { article.panel .payment-review-range-row { grid-template-columns: 1fr 1fr !important; } }
+  @media (max-width: 720px) {
+    article.panel .payment-review-range-row { grid-template-columns: 1fr !important; }
+    article.panel .payment-review-range-filter input,
+    article.panel .payment-review-range-row button { height: 46px !important; min-height: 46px !important; font-size: 16px !important; }
+    article.panel .payment-review-status-tabs { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    article.panel .payment-review-status-tabs button { width: 100% !important; min-width: 0 !important; }
+  }
 `;
 document.head.appendChild(style);
 
