@@ -1,10 +1,10 @@
 (() => {
-  const VERSION = "construction-start-list-filter-1";
-  if (window.__hakaConstructionStartListFilterV1) return;
-  window.__hakaConstructionStartListFilterV1 = true;
+  const VERSION = "construction-start-list-filter-2";
+  if (window.__hakaConstructionStartListFilterV2) return;
+  window.__hakaConstructionStartListFilterV2 = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
-  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
   const clean = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
   const key = (value) => clean(value).replace(/\s/g, "").toLowerCase();
 
