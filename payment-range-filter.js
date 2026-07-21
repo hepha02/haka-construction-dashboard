@@ -1,4 +1,5 @@
 let paymentReviewRange = { startDate: "", endDate: "" };
+let paymentReviewStatus = "all";
 let applyingPaymentRange = false;
 
 function requestedDateFromCard(card) {
@@ -7,6 +8,27 @@ function requestedDateFromCard(card) {
   const detailItems = [...card.querySelectorAll(".payment-detail-grid div")];
   const dateBox = detailItems.find((box) => box.textContent.includes("신청일"));
   return dateBox?.querySelector("strong")?.textContent?.trim() || "";
+}
+
+function statusFromCard(card) {
+  const badge = card.querySelector(".badge")?.textContent?.trim();
+  if (badge) return badge;
+  const text = card.textContent || "";
+  if (text.includes("이체전표 생성됨")) return "이체전표 생성됨";
+  if (text.includes("이체완료")) return "이체완료";
+  if (text.includes("반려")) return "반려";
+  if (text.includes("승인 대기") || text.includes("신청")) return "신청";
+  if (text.includes("승인")) return "승인";
+  return "";
+}
+
+function matchesPaymentReviewStatus(status) {
+  if (paymentReviewStatus === "all") return true;
+  if (paymentReviewStatus === "신청") return status === "신청" || status.includes("신청") || status.includes("대기");
+  if (paymentReviewStatus === "승인") return status === "승인" || status === "다운로드 가능";
+  if (paymentReviewStatus === "이체전표 생성됨") return status.includes("이체전표") || status.includes("이체완료");
+  if (paymentReviewStatus === "반려") return status.includes("반려");
+  return true;
 }
 
 function inPaymentReviewRange(date) {
@@ -29,6 +51,19 @@ function syncRangeFromInputs(panel = findReviewPanel()) {
   if (endValue !== undefined) paymentReviewRange.endDate = endValue;
 }
 
+function statusButtonsHtml() {
+  const items = [
+    ["all", "전체"],
+    ["신청", "신청건"],
+    ["승인", "승인건"],
+    ["이체전표 생성됨", "이체 제외"],
+    ["반려", "반려"]
+  ];
+  return `<div class="payment-review-status-tabs">
+    ${items.map(([value, label]) => `<button type="button" data-payment-review-status="${value}" class="${paymentReviewStatus === value ? "active" : ""}">${label}</button>`).join("")}
+  </div>`;
+}
+
 function ensureRangeFilter() {
   const panel = findReviewPanel();
   if (!panel) return null;
@@ -39,11 +74,18 @@ function ensureRangeFilter() {
     filter = document.createElement("div");
     filter.className = "payment-review-range-filter";
     filter.innerHTML = `
-      <label>시작일<input type="date" data-payment-review-start /></label>
-      <label>종료일<input type="date" data-payment-review-end /></label>
-      <button class="primary" type="button" data-payment-review-range-search>조회</button>
-      <button type="button" data-payment-review-range-clear>전체 보기</button>
+      <div class="payment-review-range-row">
+        <label>시작일<input type="date" data-payment-review-start /></label>
+        <label>종료일<input type="date" data-payment-review-end /></label>
+        <button class="primary" type="button" data-payment-review-range-search>조회</button>
+        <button type="button" data-payment-review-range-clear>전체 보기</button>
+      </div>
+      ${statusButtonsHtml()}
+      <div class="payment-review-filter-summary" data-payment-review-summary></div>
     `;
+  } else {
+    const tabs = filter.querySelector(".payment-review-status-tabs");
+    if (tabs) tabs.outerHTML = statusButtonsHtml();
   }
 
   const anchor = panel.querySelector(".bulk-actions") || panel.querySelector(".payment-review-list");
@@ -52,8 +94,8 @@ function ensureRangeFilter() {
 
   const startInput = filter.querySelector("[data-payment-review-start]");
   const endInput = filter.querySelector("[data-payment-review-end]");
-  if (startInput && !startInput.value && paymentReviewRange.startDate) startInput.value = paymentReviewRange.startDate;
-  if (endInput && !endInput.value && paymentReviewRange.endDate) endInput.value = paymentReviewRange.endDate;
+  if (startInput && document.activeElement !== startInput) startInput.value = paymentReviewRange.startDate;
+  if (endInput && document.activeElement !== endInput) endInput.value = paymentReviewRange.endDate;
   return panel;
 }
 
@@ -65,23 +107,39 @@ function applyPaymentReviewRange(force = false) {
   try {
     const cards = [...panel.querySelectorAll(".payment-review-card")];
     let visibleCount = 0;
-    const useFilter = paymentReviewRange.startDate || paymentReviewRange.endDate;
+    const statusCounts = { all: 0, 신청: 0, 승인: 0, 이체전표: 0, 반려: 0 };
+    const useDateFilter = paymentReviewRange.startDate || paymentReviewRange.endDate;
     cards.forEach((card) => {
       const date = requestedDateFromCard(card);
-      const show = !useFilter || inPaymentReviewRange(date);
+      const status = statusFromCard(card);
+      statusCounts.all += 1;
+      if (matchesPaymentReviewStatus.call({ paymentReviewStatus: "신청" }, status) || status.includes("신청") || status.includes("대기")) statusCounts.신청 += 1;
+      if (status === "승인" || status === "다운로드 가능") statusCounts.승인 += 1;
+      if (status.includes("이체전표") || status.includes("이체완료")) statusCounts.이체전표 += 1;
+      if (status.includes("반려")) statusCounts.반려 += 1;
+      const dateOk = !useDateFilter || inPaymentReviewRange(date);
+      const statusOk = matchesPaymentReviewStatus(status);
+      const show = dateOk && statusOk;
       card.style.display = show ? "" : "none";
       if (!show) {
-        const checkbox = card.querySelector(".payment-select");
+        const checkbox = card.querySelector(".payment-select, .transfer-select");
         if (checkbox) checkbox.checked = false;
       }
       if (show) visibleCount += 1;
     });
 
+    const summary = panel.querySelector("[data-payment-review-summary]");
+    if (summary) {
+      const period = useDateFilter ? `${paymentReviewRange.startDate || "처음"} ~ ${paymentReviewRange.endDate || "오늘"}` : "전체 기간";
+      const statusText = paymentReviewStatus === "all" ? "전체" : paymentReviewStatus;
+      summary.textContent = `${period} / ${statusText}: ${visibleCount}건 표시`;
+    }
+
     panel.querySelector(".payment-review-empty")?.remove();
-    if (!visibleCount && cards.length && useFilter) {
+    if (!visibleCount && cards.length) {
       const empty = document.createElement("div");
       empty.className = "payment-review-empty";
-      empty.textContent = `${paymentReviewRange.startDate || "처음"} ~ ${paymentReviewRange.endDate || "오늘"} 신청 건이 없습니다.`;
+      empty.textContent = "선택한 날짜 범위와 구분에 해당하는 결제 신청이 없습니다.";
       panel.querySelector(".payment-review-list")?.appendChild(empty);
     }
   } finally {
@@ -106,6 +164,15 @@ document.addEventListener("change", (event) => {
 }, true);
 
 document.addEventListener("click", (event) => {
+  const statusButton = event.target.closest?.("[data-payment-review-status]");
+  if (statusButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    paymentReviewStatus = statusButton.dataset.paymentReviewStatus || "all";
+    applyPaymentReviewRange(true);
+    return;
+  }
+
   const search = event.target.closest?.("[data-payment-review-range-search]");
   if (search) {
     event.preventDefault();
@@ -120,6 +187,7 @@ document.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     paymentReviewRange = { startDate: "", endDate: "" };
+    paymentReviewStatus = "all";
     const panel = ensureRangeFilter();
     const startInput = panel?.querySelector("[data-payment-review-start]");
     const endInput = panel?.querySelector("[data-payment-review-end]");
@@ -148,9 +216,7 @@ style.textContent = `
     box-sizing: border-box !important;
     width: 100% !important;
     display: grid !important;
-    grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) 108px 120px !important;
     gap: 10px !important;
-    align-items: end !important;
     margin: 10px 0 14px !important;
     padding: 12px !important;
     border: 1px solid #d9e7e2 !important;
@@ -158,6 +224,12 @@ style.textContent = `
     background: #f8fbfa !important;
     position: relative !important;
     z-index: 50 !important;
+  }
+  .payment-review-range-row {
+    display: grid !important;
+    grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) 108px 120px !important;
+    gap: 10px !important;
+    align-items: end !important;
   }
   .payment-review-range-filter label {
     min-width: 0 !important;
@@ -172,7 +244,6 @@ style.textContent = `
   .payment-review-range-filter input,
   .payment-review-range-filter button {
     box-sizing: border-box !important;
-    width: 100% !important;
     height: 44px !important;
     min-height: 44px !important;
     margin: 0 !important;
@@ -187,11 +258,15 @@ style.textContent = `
     z-index: 60 !important;
     cursor: pointer !important;
   }
-  .payment-review-range-filter input { border: 1px solid #dce2ea !important; color: #162033 !important; background: #ffffff !important; }
+  .payment-review-range-filter input { width: 100% !important; border: 1px solid #dce2ea !important; color: #162033 !important; background: #ffffff !important; }
   .payment-review-range-filter button { border: 1px solid #d9dfe8 !important; color: #253247 !important; background: #ffffff !important; }
   .payment-review-range-filter button.primary { border-color: #237c63 !important; color: #ffffff !important; background: #237c63 !important; }
-  @media (max-width: 980px) { .payment-review-range-filter { grid-template-columns: 1fr 1fr !important; } }
-  @media (max-width: 720px) { .payment-review-range-filter { grid-template-columns: 1fr !important; } .payment-review-range-filter input, .payment-review-range-filter button { height: 46px !important; min-height: 46px !important; font-size: 16px !important; } }
+  .payment-review-status-tabs { display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+  .payment-review-status-tabs button { height: 38px !important; min-height: 38px !important; }
+  .payment-review-status-tabs button.active { border-color: #237c63 !important; color: #116447 !important; background: #e6f5ee !important; }
+  .payment-review-filter-summary { color: #526074 !important; font-size: 12px !important; font-weight: 900 !important; }
+  @media (max-width: 980px) { .payment-review-range-row { grid-template-columns: 1fr 1fr !important; } }
+  @media (max-width: 720px) { .payment-review-range-row { grid-template-columns: 1fr !important; } .payment-review-range-filter input, .payment-review-range-filter button { width: 100% !important; height: 46px !important; min-height: 46px !important; font-size: 16px !important; } }
 `;
 document.head.appendChild(style);
 
