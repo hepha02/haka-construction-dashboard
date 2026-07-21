@@ -1,13 +1,35 @@
 function tsText(node) { return String(node?.textContent || "").trim(); }
 
+function tsIsVisible(element) {
+  if (!element) return false;
+  const card = element.closest(".payment-review-card");
+  if (card && card.style.display === "none") return false;
+  const style = getComputedStyle(element);
+  return style.display !== "none" && style.visibility !== "hidden";
+}
+
 function tsIsApprovedCard(card) {
   const status = tsText(card.querySelector(".payment-summary-meta .badge"));
-  return status.includes("승인");
+  return status.includes("승인") && !status.includes("신청") && !status.includes("반려") && !status.includes("이체전표") && !status.includes("이체완료");
 }
 
 function tsIsRejectedCard(card) {
   const status = tsText(card.querySelector(".payment-summary-meta .badge"));
   return status.includes("반려");
+}
+
+function tsVisibleTransferBoxes() {
+  return [...document.querySelectorAll(".transfer-payment-select")].filter((box) => {
+    const card = box.closest(".payment-review-card");
+    return card && tsIsVisible(card) && tsIsApprovedCard(card) && !box.disabled;
+  });
+}
+
+function tsClearHiddenTransferChecks() {
+  document.querySelectorAll(".transfer-payment-select").forEach((box) => {
+    const card = box.closest(".payment-review-card");
+    if (!card || !tsIsVisible(card) || !tsIsApprovedCard(card)) box.checked = false;
+  });
 }
 
 function tsEnsureCheckboxes() {
@@ -20,6 +42,8 @@ function tsEnsureCheckboxes() {
         const store = tsText(card.querySelector(".payment-summary-main strong"));
         main.insertAdjacentHTML("afterbegin", `<input type="checkbox" class="transfer-payment-select" aria-label="${store} 이체 선택" />`);
       }
+    } else {
+      card.querySelectorAll(".transfer-payment-select").forEach((box) => box.remove());
     }
 
     if (tsIsRejectedCard(card)) {
@@ -31,10 +55,18 @@ function tsEnsureCheckboxes() {
   if (bulk && !bulk.querySelector("[data-select-approved-transfers]")) {
     bulk.insertAdjacentHTML("beforeend", `<label class="transfer-select-control"><input type="checkbox" data-select-approved-transfers /> 이체대상 전체 선택</label>`);
   }
+  tsClearHiddenTransferChecks();
 }
 
 function tsUpdateDownloadButtons() {
-  const selectedCount = document.querySelectorAll(".transfer-payment-select:checked").length;
+  tsClearHiddenTransferChecks();
+  const visibleBoxes = tsVisibleTransferBoxes();
+  const selectedCount = visibleBoxes.filter((box) => box.checked).length;
+  const master = document.querySelector("[data-select-approved-transfers]");
+  if (master) {
+    master.checked = visibleBoxes.length > 0 && visibleBoxes.every((box) => box.checked);
+    master.indeterminate = selectedCount > 0 && selectedCount < visibleBoxes.length;
+  }
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
     if (button.closest(".transfer-download-panel")) return;
     button.textContent = selectedCount ? `선택 이체 파일 ${selectedCount}건` : "선택건 엑셀 다운로드";
@@ -44,9 +76,8 @@ function tsUpdateDownloadButtons() {
 
 document.addEventListener("change", (event) => {
   if (event.target.matches?.("[data-select-approved-transfers]")) {
-    document.querySelectorAll(".payment-review-card").forEach((card) => {
-      const box = card.querySelector(".transfer-payment-select");
-      if (box && card.style.display !== "none") box.checked = event.target.checked;
+    tsVisibleTransferBoxes().forEach((box) => {
+      box.checked = event.target.checked;
     });
   }
   if (event.target.matches?.(".transfer-payment-select, [data-select-approved-transfers]")) {
@@ -95,10 +126,10 @@ const tsObserver = new MutationObserver(() => {
     tsUpdateDownloadButtons();
   }, 120);
 });
-tsObserver.observe(document.body, { childList: true, subtree: true });
+tsObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class"] });
 setInterval(() => {
   tsEnsureCheckboxes();
   tsUpdateDownloadButtons();
-}, 1000);
+}, 700);
 tsEnsureCheckboxes();
 tsUpdateDownloadButtons();
