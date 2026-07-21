@@ -1,7 +1,7 @@
 (() => {
-  const VERSION = "bank-transfer-real-xls-4-transfer-mark";
-  if (window.__hakaBankTransferStrictV4) return;
-  window.__hakaBankTransferStrictV4 = true;
+  const VERSION = "bank-transfer-real-xls-5-match-without-id";
+  if (window.__hakaBankTransferStrictV5) return;
+  window.__hakaBankTransferStrictV5 = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
@@ -51,8 +51,10 @@
 
   function isVisible(el) {
     if (!el) return false;
+    const card = el.closest?.(".payment-review-card, .payment-card");
+    if (card && card.style.display === "none") return false;
     const style = getComputedStyle(el);
-    return style.display !== "none" && style.visibility !== "hidden" && el.offsetParent !== null;
+    return style.display !== "none" && style.visibility !== "hidden";
   }
 
   function statusText(card) {
@@ -65,25 +67,12 @@
     return (status.includes("승인") || status.includes("다운로드 가능")) && !status.includes("이체전표") && !status.includes("이체완료") && !status.includes("대기") && !status.includes("신청") && !status.includes("반려");
   }
 
-  function allCards() {
-    return [...document.querySelectorAll(".payment-review-card, .payment-card")].filter(isVisible);
-  }
-
   function checkedBoxes(root = document) {
     return [...root.querySelectorAll(".transfer-payment-select:checked, .transfer-select:checked")].filter(isVisible);
   }
 
   function rowBoxes(root = document) {
     return [...root.querySelectorAll(".transfer-payment-select, .transfer-select")].filter(isVisible);
-  }
-
-  function selectedTargets(root = document) {
-    const boxes = checkedBoxes(root);
-    return targetsFromBoxes(boxes);
-  }
-
-  function rangeTargets(root = document) {
-    return targetsFromBoxes(rowBoxes(root));
   }
 
   function targetsFromBoxes(boxes) {
@@ -99,6 +88,14 @@
       else if (row) rows.push(row);
     });
     return { cards, rows, ids: [...new Set(ids)], count: boxes.length };
+  }
+
+  function selectedTargets(root = document) {
+    return targetsFromBoxes(checkedBoxes(root));
+  }
+
+  function rangeTargets(root = document) {
+    return targetsFromBoxes(rowBoxes(root));
   }
 
   async function expandCards(cards) {
@@ -132,24 +129,29 @@
     return "";
   }
 
-  function summaryAmount(card) {
-    return money(card.querySelector(".payment-summary-meta strong")?.textContent || clean(card.textContent).match(/₩[0-9,]+/)?.[0] || "");
+  function summaryMain(card) {
+    return {
+      store: clean(card.querySelector(".payment-summary-main strong")?.textContent || ""),
+      vendor: clean(card.querySelector(".payment-summary-main span")?.textContent || ""),
+      item: clean(card.querySelector(".payment-summary-meta span")?.textContent || "")
+    };
   }
 
-  function summaryVendor(card) {
-    return clean(card.querySelector(".payment-summary-main span")?.textContent || "");
+  function summaryAmount(card) {
+    return money(card.querySelector(".payment-summary-meta strong")?.textContent || clean(card.textContent).match(/₩[0-9,]+/)?.[0] || "");
   }
 
   function recordFromCard(card) {
     if (!isTransferReady(card)) return null;
     const rows = detailRows(card);
+    const main = summaryMain(card);
     const bank = detailValue(rows, ["입금은행", "은행"]);
     const account = detailValue(rows, ["입금계좌", "계좌번호", "계좌"]);
-    const holder = detailValue(rows, ["예금주", "고객관리성명"]) || summaryVendor(card);
+    const holder = detailValue(rows, ["예금주", "고객관리성명"]) || main.vendor;
     const amount = money(detailValue(rows, ["실지급액", "입금액", "이번신청액", "신청액", "금액"]) || summaryAmount(card));
     const id = Number(card.querySelector(".transfer-select, .transfer-payment-select")?.value || 0);
     if (!bank || !account || !holder || !amount) return null;
-    return { id, bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromText(card.innerText || card.textContent || "") };
+    return { id, ...main, bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromText(card.innerText || card.textContent || "") };
   }
 
   function recordFromRow(row) {
@@ -159,20 +161,22 @@
     const id = Number(box?.value || 0);
     const hasCheckboxColumn = !!box || cells[0] === "";
     const offset = hasCheckboxColumn ? 1 : 0;
+    const store = cells[offset + 0] || "";
+    const vendor = cells[offset + 1] || "";
     const bank = cells[offset + 2] || "";
     const account = cells[offset + 3] || "";
-    const holder = cells[offset + 4] || cells[offset + 1] || "";
+    const holder = cells[offset + 4] || vendor || "";
     const amount = money(cells[offset + 5] || "");
     const status = cells[offset + 7] || "다운로드 가능";
     if (status.includes("이체전표") || status.includes("이체완료") || status.includes("계좌정보") || status.includes("반려") || status.includes("대기") || status.includes("신청")) return null;
     if (!bank || !account || !holder || !amount) return null;
-    return { id, bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromText(row.innerText || row.textContent || "") };
+    return { id, store, vendor, item: "", bank: normalizeBankName(bank), account: digits(account), amount, holder: clean(holder), date: dateFromText(row.innerText || row.textContent || "") };
   }
 
   function uniqueRecords(records) {
     const seen = new Set();
     return records.filter((record) => {
-      const id = record.id ? `id:${record.id}` : [record.bank, record.account, record.amount, record.holder].join("|");
+      const id = record.id ? `id:${record.id}` : [record.bank, record.account, record.amount, record.holder, record.store, record.vendor].join("|");
       if (seen.has(id)) return false;
       seen.add(id);
       return true;
@@ -214,11 +218,61 @@
     return true;
   }
 
-  async function markTransferred(paymentIds) {
-    const ids = [...new Set(paymentIds.map(Number).filter(Boolean))];
-    if (!ids.length) return { ok: false, count: 0, message: "결제건 ID를 찾지 못해 중복 제외 처리를 못했습니다." };
+  function sameText(a, b) {
+    if (!a || !b) return false;
+    return compact(a) === compact(b);
+  }
+
+  function paymentAmount(payment) {
+    return money(payment.net_amount || payment.amount || 0);
+  }
+
+  function paymentDate(payment) {
+    return String(payment.requested_at || "").slice(0, 10);
+  }
+
+  function recordMatchesPayment(record, payment) {
+    if (payment.status !== "승인") return false;
+    if (record.date && paymentDate(payment) !== record.date) return false;
+    if (record.store && !sameText(record.store, payment.store)) return false;
+    if (record.vendor && !sameText(record.vendor, payment.vendor)) return false;
+    if (record.account && digits(payment.vendor_account_number) && digits(payment.vendor_account_number) !== record.account) return false;
+    return paymentAmount(payment) === money(record.amount);
+  }
+
+  async function findIdsByRecords(client, records) {
+    const dates = records.map((record) => record.date).filter(Boolean).sort();
+    let query = client.from("payments").select("id,store,vendor,amount,net_amount,vendor_account_number,vendor_account_holder,requested_at,status").eq("status", "승인").limit(1000);
+    if (dates.length) {
+      query = query.gte("requested_at", dates[0]).lte("requested_at", `${dates[dates.length - 1]}T23:59:59`);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const used = new Set();
+    const ids = [];
+    records.forEach((record) => {
+      const match = (data || []).find((payment) => !used.has(payment.id) && recordMatchesPayment(record, payment));
+      if (match) {
+        used.add(match.id);
+        ids.push(match.id);
+      }
+    });
+    return ids;
+  }
+
+  async function markTransferred(records, directIds = []) {
     const client = getClient();
     if (!client) return { ok: false, count: 0, message: "Supabase 연결 모듈을 찾지 못해 중복 제외 처리를 못했습니다." };
+    let ids = [...new Set(directIds.map(Number).filter(Boolean))];
+    try {
+      if (!ids.length || ids.length < records.length) {
+        const matchedIds = await findIdsByRecords(client, records);
+        ids = [...new Set([...ids, ...matchedIds])];
+      }
+    } catch (error) {
+      return { ok: false, count: 0, message: `결제건 조회 실패: ${error.message}` };
+    }
+    if (!ids.length) return { ok: false, count: 0, message: "결제건을 매칭하지 못했습니다. 매장명/업체명/금액/계좌정보를 확인해 주세요." };
     const { data, error } = await client
       .from("payments")
       .update({ status: TRANSFER_STATUS })
@@ -226,22 +280,24 @@
       .eq("status", "승인")
       .select("id");
     if (error) return { ok: false, count: 0, message: error.message };
-    return { ok: true, count: data?.length || 0, message: "" };
+    return { ok: true, count: data?.length || 0, ids, message: "" };
   }
 
   function markRowsVisually(paymentIds) {
     const idSet = new Set(paymentIds.map(String));
     document.querySelectorAll(".transfer-select, .transfer-payment-select").forEach((box) => {
-      if (!idSet.has(String(box.value))) return;
+      if (box.value && !idSet.has(String(box.value))) return;
       const row = box.closest("tr");
       const card = box.closest(".payment-review-card, .payment-card");
       const target = row || card;
       if (!target) return;
-      target.style.opacity = "0.55";
-      box.checked = false;
-      box.disabled = true;
-      const badge = target.querySelector(".badge") || target.querySelector("td:last-child");
-      if (badge) badge.textContent = TRANSFER_STATUS;
+      if (box.checked || !box.value) {
+        target.style.opacity = "0.55";
+        box.checked = false;
+        box.disabled = true;
+        const badge = target.querySelector(".badge") || target.querySelector("td:last-child");
+        if (badge) badge.textContent = TRANSFER_STATUS;
+      }
     });
   }
 
@@ -283,13 +339,13 @@
         alert("선택/조회 범위 안에 이체 가능한 승인건을 찾지 못했습니다. 날짜, 체크박스, 계좌정보를 확인해 주세요.");
         return;
       }
-      const paymentIds = [...new Set([...targets.ids, ...records.map((record) => record.id)].map(Number).filter(Boolean))];
+      const directIds = [...new Set([...targets.ids, ...records.map((record) => record.id)].map(Number).filter(Boolean))];
       const label = selected.count ? `선택_${today()}` : `${start}_${end}`;
       if (!downloadRealExcel(records, label)) return;
 
-      const marked = await markTransferred(paymentIds);
+      const marked = await markTransferred(records, directIds);
       if (marked.ok) {
-        markRowsVisually(paymentIds);
+        markRowsVisually(marked.ids || directIds);
         alert(`${records.length}건 이체파일을 생성했고, ${marked.count}건을 다음 이체대상에서 제외 처리했습니다. 새로고침하면 제외된 건은 기본 이체 목록에서 빠집니다.`);
         setTimeout(() => window.location.reload(), 1200);
       } else {
