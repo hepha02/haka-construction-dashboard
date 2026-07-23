@@ -1,7 +1,7 @@
 (() => {
-  const VERSION = "bank-transfer-real-xls-5-match-without-id";
-  if (window.__hakaBankTransferStrictV5) return;
-  window.__hakaBankTransferStrictV5 = true;
+  const VERSION = "bank-transfer-real-xls-6-preserve-same-amount";
+  if (window.__hakaBankTransferStrictV6) return;
+  window.__hakaBankTransferStrictV6 = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
@@ -174,11 +174,12 @@
   }
 
   function uniqueRecords(records) {
-    const seen = new Set();
+    const seenIds = new Set();
     return records.filter((record) => {
-      const id = record.id ? `id:${record.id}` : [record.bank, record.account, record.amount, record.holder, record.store, record.vendor].join("|");
-      if (seen.has(id)) return false;
-      seen.add(id);
+      if (!record.id) return true;
+      const id = `id:${record.id}`;
+      if (seenIds.has(id)) return false;
+      seenIds.add(id);
       return true;
     });
   }
