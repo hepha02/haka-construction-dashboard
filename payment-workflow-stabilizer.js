@@ -1,7 +1,7 @@
 (() => {
-  const VERSION = "payment-workflow-stabilizer-1";
-  if (window.__hakaPaymentWorkflowStabilizerV1) return;
-  window.__hakaPaymentWorkflowStabilizerV1 = true;
+  const VERSION = "payment-workflow-stabilizer-2";
+  if (window.__hakaPaymentWorkflowStabilizerV2) return;
+  window.__hakaPaymentWorkflowStabilizerV2 = true;
 
   const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
@@ -40,7 +40,8 @@
   }
 
   function paymentOwner(payment) {
-    return clean(payment.requested_by_email || payment.requested_by || payment.created_by_email || payment.created_by || "");
+    const localOwner = payment.id ? localStorage.getItem(`haka-payment-owner-${payment.id}`) : "";
+    return clean(payment.requested_by_email || payment.requested_by || payment.created_by_email || payment.created_by || localOwner || "");
   }
 
   function hasOwnerColumn(payment) {
@@ -55,30 +56,20 @@
     return true;
   }
 
-  function statusMatches(payment) {
-    if (state.status === "전체") return true;
-    return clean(payment.status) === state.status;
-  }
-
-  function textMatches(payment) {
-    const query = clean(state.query).toLowerCase();
-    if (!query) return true;
-    const haystack = [payment.store, payment.vendor, payment.payment_item, payment.memo, payment.vendor_account_holder, payment.vendor_account_number]
-      .map(clean)
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
-  }
-
-  function mineMatches(payment) {
-    if (!state.mineOnly || !state.user?.email) return true;
-    const owner = paymentOwner(payment);
-    if (!owner) return true;
-    return owner.toLowerCase() === state.user.email.toLowerCase();
-  }
-
   function filteredPayments() {
-    return state.payments.filter((payment) => inRange(payment) && statusMatches(payment) && textMatches(payment) && mineMatches(payment));
+    const query = clean(state.query).toLowerCase();
+    return state.payments.filter((payment) => {
+      if (!inRange(payment)) return false;
+      if (state.status !== "전체" && clean(payment.status) !== state.status) return false;
+      if (state.mineOnly && state.user?.email) {
+        const owner = paymentOwner(payment);
+        if (owner && owner.toLowerCase() !== state.user.email.toLowerCase()) return false;
+      }
+      if (!query) return true;
+      const text = [payment.store, payment.vendor, payment.payment_item, payment.memo, payment.vendor_account_holder, payment.vendor_account_number]
+        .map(clean).join(" ").toLowerCase();
+      return text.includes(query);
+    });
   }
 
   function statusClass(status) {
@@ -142,11 +133,9 @@
     if (!isPaymentPage()) return null;
     let ledger = document.querySelector("[data-haka-payment-ledger]");
     if (ledger) return ledger;
-
     ledger = document.createElement("article");
     ledger.dataset.hakaPaymentLedger = "true";
     ledger.className = "panel haka-payment-ledger";
-
     const anchor = anchorPanel();
     const parent = anchor?.parentElement || document.querySelector("#app") || document.body;
     parent.insertBefore(ledger, anchor?.nextSibling || parent.firstChild);
@@ -169,32 +158,20 @@
       buttons.push(`<button data-haka-pay-status="승인" data-haka-pay-id="${payment.id}">승인</button>`);
       buttons.push(`<button data-haka-pay-status="반려" data-haka-pay-id="${payment.id}">반려</button>`);
     }
-    if (status === "반려") {
-      buttons.push(`<button data-haka-pay-status="승인" data-haka-pay-id="${payment.id}">승인으로 변경</button>`);
-    }
-    if (status === TRANSFER_STATUS) {
-      buttons.push(`<button class="primary" data-haka-pay-status="${PAID_STATUS}" data-haka-pay-id="${payment.id}">송금완료</button>`);
-    }
-    if (!buttons.length) return `<span class="muted">처리 완료</span>`;
-    return `<div class="row-actions compact">${buttons.join("")}</div>`;
+    if (status === "반려") buttons.push(`<button data-haka-pay-status="승인" data-haka-pay-id="${payment.id}">승인으로 변경</button>`);
+    if (status === TRANSFER_STATUS) buttons.push(`<button class="primary" data-haka-pay-status="${PAID_STATUS}" data-haka-pay-id="${payment.id}">송금완료</button>`);
+    return buttons.length ? `<div class="row-actions compact">${buttons.join("")}</div>` : `<span class="muted">처리 완료</span>`;
   }
 
   function renderRows(payments) {
-    if (!payments.length) {
-      return `<div class="empty">조회 조건에 맞는 결제건이 없습니다.</div>`;
-    }
+    if (!payments.length) return `<div class="empty">조회 조건에 맞는 결제건이 없습니다.</div>`;
     return payments.map((payment) => {
       const amount = payment.net_amount || payment.amount || 0;
       const owner = paymentOwner(payment);
       return `
         <details class="payment-review-card haka-ledger-card">
           <summary>
-            <div class="payment-summary-main">
-              <div>
-                <strong>${escapeHtml(payment.store || "-")}</strong>
-                <span>${escapeHtml(payment.vendor || "-")}</span>
-              </div>
-            </div>
+            <div class="payment-summary-main"><div><strong>${escapeHtml(payment.store || "-")}</strong><span>${escapeHtml(payment.vendor || "-")}</span></div></div>
             <div class="payment-summary-meta">
               <span>신청일 ${escapeHtml(dateOnly(payment.requested_at || payment.created_at) || "-")}</span>
               <span>${escapeHtml(payment.payment_item || "-")}</span>
@@ -237,8 +214,8 @@
         .haka-payment-ledger { margin-top: 18px; }
         .haka-workflow-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
         .haka-status-tabs { display:flex; gap:8px; flex-wrap:wrap; margin:14px 0; }
-        .haka-status-tabs button.active { background:#e4f4ec; border-color:#21866b; color:#075f4a; }
-        .haka-ledger-filters { display:grid; grid-template-columns: repeat(4, minmax(160px, 1fr)); gap:12px; align-items:end; }
+        .haka-status-tabs button.active, .haka-ledger-filters button.active { background:#e4f4ec; border-color:#21866b; color:#075f4a; }
+        .haka-ledger-filters { display:grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap:12px; align-items:end; }
         .haka-ledger-filters label { display:flex; flex-direction:column; gap:6px; font-weight:700; color:#475569; }
         .haka-ledger-filters input { min-height:44px; border:1px solid #d7e0ea; border-radius:8px; padding:0 12px; font-weight:700; }
         .haka-ledger-summary { display:grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap:10px; margin:14px 0; }
@@ -255,14 +232,8 @@
         }
       </style>
       <div class="haka-workflow-head">
-        <div>
-          <h2>결제 진행상황 조회</h2>
-          <p class="muted">신청, 승인, 이체전표 생성, 송금완료 상태를 날짜와 업체 기준으로 따로 확인합니다.</p>
-        </div>
-        <div class="haka-ledger-quick">
-          <button data-haka-seokyung-check>서경전력 저번주 확인</button>
-          <button data-haka-ledger-refresh>새로고침</button>
-        </div>
+        <div><h2>결제 진행상황 조회</h2><p class="muted">신청, 승인, 이체전표 생성, 송금완료 상태를 날짜와 업체 기준으로 따로 확인합니다.</p></div>
+        <div class="haka-ledger-quick"><button data-haka-seokyung-check>서경전력 저번주 확인</button><button data-haka-ledger-refresh>새로고침</button></div>
       </div>
       ${state.message ? `<div class="notice">${escapeHtml(state.message)}</div>` : ""}
       ${ownerNotice}
@@ -273,9 +244,8 @@
         <label>시작일<input type="date" data-haka-ledger-start value="${escapeHtml(state.start)}" /></label>
         <label>종료일<input type="date" data-haka-ledger-end value="${escapeHtml(state.end)}" /></label>
         <label>매장/업체/항목 검색<input data-haka-ledger-query value="${escapeHtml(state.query)}" placeholder="예: 서경전력" /></label>
-        <label>조회 방식
-          <button class="${state.mineOnly ? "active" : ""}" data-haka-mine-toggle>${state.mineOnly ? "내 신청만 보는 중" : "전체 내역 보는 중"}</button>
-        </label>
+        <label>내역 범위<button class="${state.mineOnly ? "active" : ""}" data-haka-mine-toggle>${state.mineOnly ? "내 신청만" : "전체 내역"}</button></label>
+        <label>조회<button class="primary" data-haka-apply-filter>조회</button></label>
       </div>
       <div class="haka-ledger-summary">
         <div><span>조회 결과</span><strong>${result.length}건</strong></div>
@@ -283,10 +253,17 @@
         <div><span>이체전표 생성</span><strong>${countMap[TRANSFER_STATUS] || 0}건</strong></div>
         <div><span>송금완료</span><strong>${countMap[PAID_STATUS] || 0}건</strong></div>
       </div>
-      <div class="haka-ledger-list">
-        ${state.loading ? `<div class="empty">결제 내역을 불러오는 중입니다.</div>` : renderRows(result)}
-      </div>
+      <div class="haka-ledger-list">${state.loading ? `<div class="empty">결제 내역을 불러오는 중입니다.</div>` : renderRows(result)}</div>
     `;
+  }
+
+  function syncFilterInputs() {
+    const start = document.querySelector("[data-haka-ledger-start]");
+    const end = document.querySelector("[data-haka-ledger-end]");
+    const query = document.querySelector("[data-haka-ledger-query]");
+    if (start) state.start = start.value;
+    if (end) state.end = end.value;
+    if (query) state.query = query.value;
   }
 
   function bindPaymentSubmitTracker() {
@@ -294,13 +271,7 @@
       const form = event.target;
       if (!form || form.id !== "payment-form") return;
       const formData = new FormData(form);
-      const snapshot = {
-        store: clean(formData.get("store")),
-        vendor: clean(formData.get("vendor")),
-        payment_item: clean(formData.get("payment_item")),
-        amount: money(formData.get("amount")),
-        requested_at: today()
-      };
+      const snapshot = { store: clean(formData.get("store")), vendor: clean(formData.get("vendor")), amount: money(formData.get("amount")), requested_at: today() };
       setTimeout(() => tagLatestSubmittedPayment(snapshot), 2500);
     }, true);
   }
@@ -319,35 +290,35 @@
       .limit(1);
     const payment = data?.[0];
     if (!payment?.id) return;
-
     const update = await client.from("payments").update({ requested_by_email: state.user.email }).eq("id", payment.id).select("id");
-    if (update.error) {
-      try {
-        localStorage.setItem(`haka-payment-owner-${payment.id}`, state.user.email);
-      } catch (_) {}
-    }
+    if (update.error) localStorage.setItem(`haka-payment-owner-${payment.id}`, state.user.email);
     await loadData();
   }
 
   document.addEventListener("click", async (event) => {
     const statusButton = event.target.closest("[data-haka-status-tab]");
     if (statusButton) {
+      syncFilterInputs();
       state.status = statusButton.dataset.hakaStatusTab;
       renderLedger();
       return;
     }
-
+    if (event.target.closest("[data-haka-apply-filter]")) {
+      syncFilterInputs();
+      renderLedger();
+      return;
+    }
     if (event.target.closest("[data-haka-ledger-refresh]")) {
+      syncFilterInputs();
       await loadData();
       return;
     }
-
     if (event.target.closest("[data-haka-mine-toggle]")) {
+      syncFilterInputs();
       state.mineOnly = !state.mineOnly;
       renderLedger();
       return;
     }
-
     if (event.target.closest("[data-haka-seokyung-check]")) {
       state.start = "2026-07-13";
       state.end = "2026-07-19";
@@ -357,33 +328,19 @@
       renderLedger();
       return;
     }
-
     const action = event.target.closest("[data-haka-pay-status][data-haka-pay-id]");
-    if (action) {
-      await updatePaymentStatus(Number(action.dataset.hakaPayId), action.dataset.hakaPayStatus);
-    }
-  });
-
-  document.addEventListener("input", (event) => {
-    const target = event.target;
-    if (target.matches("[data-haka-ledger-start]")) state.start = target.value;
-    if (target.matches("[data-haka-ledger-end]")) state.end = target.value;
-    if (target.matches("[data-haka-ledger-query]")) state.query = target.value;
-    if (target.matches("[data-haka-ledger-start], [data-haka-ledger-end], [data-haka-ledger-query]")) renderLedger();
+    if (action) await updatePaymentStatus(Number(action.dataset.hakaPayId), action.dataset.hakaPayStatus);
   });
 
   const observer = new MutationObserver(() => {
     window.clearTimeout(window.__hakaPaymentWorkflowTimer);
     window.__hakaPaymentWorkflowTimer = window.setTimeout(() => {
-      if (ensureLedger()) renderLedger();
-    }, 120);
+      if (isPaymentPage() && !document.querySelector("[data-haka-payment-ledger]")) renderLedger();
+    }, 160);
   });
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", loadData, { once: true });
-  } else {
-    loadData();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", loadData, { once: true });
+  else loadData();
   bindPaymentSubmitTracker();
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("focus", loadData);
