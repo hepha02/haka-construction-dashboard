@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HAKA 직접 로그인</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #f4f7f8;
+        color: #162033;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main {
+        width: min(430px, 100%);
+        display: grid;
+        gap: 14px;
+        padding: 28px;
+        border: 1px solid #dfe6ee;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 18px 50px rgba(20,32,48,.14);
+      }
+      .brand { display: flex; align-items: center; gap: 12px; }
+      .mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 8px; background: #237c63; color: #fff; font-weight: 900; }
+      h1 { margin: 8px 0 0; font-size: 30px; letter-spacing: 0; }
+      p { margin: 0; color: #526174; font-size: 14px; line-height: 1.5; font-weight: 700; word-break: keep-all; }
+      form { display: grid; gap: 12px; }
+      label { display: grid; gap: 6px; color: #526174; font-size: 13px; font-weight: 900; }
+      input { width: 100%; height: 48px; padding: 0 12px; border: 1px solid #dce2ea; border-radius: 8px; font-size: 16px; }
+      button, a {
+        width: 100%;
+        min-height: 48px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 900;
+        text-decoration: none;
+      }
+      button { border: 0; background: #237c63; color: #fff; cursor: pointer; }
+      button.secondary { border: 1px solid #d6e0e8; background: #fff; color: #162033; }
+      button:disabled { opacity: .65; cursor: progress; }
+      a { border: 1px solid #d6e0e8; color: #162033; background: #fff; }
+      #message { min-height: 20px; font-weight: 900; }
+      #message.error { color: #b42318; }
+      #message.success { color: #237c63; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand"><div class="mark">H</div><div><strong>HAKA Construction</strong><p>공사비 관리 시스템</p></div></div>
+      <h1>직접 로그인</h1>
+      <p>기존 로그인 화면이 꼬였을 때 사용하는 임시 로그인 화면입니다. 로그인 성공 후 기존 사이트로 이동합니다.</p>
+      <form id="login-form">
+        <label>이메일<input id="email" type="email" autocomplete="email" required /></label>
+        <label>비밀번호<input id="password" type="password" autocomplete="current-password" required /></label>
+        <button id="login" type="submit">로그인</button>
+      </form>
+      <button class="secondary" type="button" id="clear">로그인 상태 초기화</button>
+      <button class="secondary" type="button" id="reset">비밀번호 재설정 메일 보내기</button>
+      <a href="/haka-construction-dashboard/index.html?v=auth-direct-back">기존 화면으로 돌아가기</a>
+      <p id="message"></p>
+    </main>
+    <script>
+      const SUPABASE_URL = "https://yqemtsbdnypgmkuyncxh.supabase.co";
+      const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
+      const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+      const msg = document.getElementById("message");
+      const email = document.getElementById("email");
+      const password = document.getElementById("password");
+      function show(text, kind) { msg.textContent = text; msg.className = kind || ""; }
+      function clearLoginState() {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          if (!key) continue;
+          if (key.includes("supabase") || key.includes("sb-yqemtsbdnypgmkuyncxh")) keys.push(key);
+        }
+        keys.forEach((key) => localStorage.removeItem(key));
+        sessionStorage.clear();
+      }
+      document.getElementById("clear").addEventListener("click", () => {
+        clearLoginState();
+        show("로그인 상태를 초기화했습니다. 다시 로그인해 주세요.", "success");
+      });
+      document.getElementById("reset").addEventListener("click", async () => {
+        const value = email.value.trim();
+        if (!value) return show("이메일을 먼저 입력해 주세요.", "error");
+        show("비밀번호 재설정 메일을 보내는 중입니다.", "");
+        const { error } = await client.auth.resetPasswordForEmail(value, {
+          redirectTo: location.origin + "/haka-construction-dashboard/index.html?v=password-reset-direct"
+        });
+        if (error) return show("재설정 메일 발송 실패: " + error.message, "error");
+        show("비밀번호 재설정 메일을 보냈습니다. 받은 메일함/스팸함을 확인해 주세요.", "success");
+      });
+      document.getElementById("login-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        show("로그인 확인 중입니다.", "");
+        document.getElementById("login").disabled = true;
+        const { error } = await client.auth.signInWithPassword({ email: email.value.trim(), password: password.value });
+        document.getElementById("login").disabled = false;
+        if (error) {
+          const text = error.message || "알 수 없는 오류";
+          if (/Invalid login credentials/i.test(text)) return show("로그인 실패: 이메일 또는 비밀번호가 맞지 않습니다.", "error");
+          if (/Email not confirmed/i.test(text)) return show("로그인 실패: 이메일 인증이 필요합니다.", "error");
+          return show("로그인 실패: " + text, "error");
+        }
+        show("로그인 성공. 기존 사이트로 이동합니다.", "success");
+        setTimeout(() => { location.href = "/haka-construction-dashboard/index.html?v=auth-direct-ok-" + Date.now(); }, 700);
+      });
+    </script>
+  </body>
+</html>
