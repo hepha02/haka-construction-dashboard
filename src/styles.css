@@ -13,9 +13,7 @@
 body {
   margin: 0;
   min-width: 320px;
-  background:
-    radial-gradient(circle at top right, rgba(35, 124, 99, 0.09), transparent 30rem),
-    #f4f6f8;
+  background: #eef3f7;
 }
 
 button,
@@ -31,13 +29,19 @@ button {
 
 #app {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 170px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 #app.auth-shell {
   display: block;
   grid-template-columns: none;
+}
+
+#app.transfer-app {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .auth-page {
@@ -76,26 +80,33 @@ button {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 24px 18px;
-  background: rgba(255, 255, 255, 0.9);
-  border-right: 1px solid #e4e8ee;
+  padding: 0;
+  overflow-y: auto;
+  color: #aeb7c5;
+  background: #303746;
+  border-right: 1px solid #252b37;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
+  gap: 10px;
+  min-height: 42px;
+  margin-bottom: 0;
+  padding: 0 13px;
+  border-bottom: 1px solid #252b37;
+  background: #3a4252;
 }
 
 .brand-mark {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 24px;
+  height: 24px;
   place-items: center;
-  border-radius: 8px;
+  border-radius: 6px;
   color: #ffffff;
-  background: #237c63;
+  background: #1e9af0;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -105,35 +116,83 @@ button {
 }
 
 .brand small {
-  margin-top: 3px;
-  color: #748094;
-  font-size: 12px;
+  margin-top: 1px;
+  color: #a8b1bf;
+  font-size: 10px;
 }
 
 nav {
   display: grid;
-  gap: 4px;
+  gap: 0;
+  padding-top: 6px;
 }
 
 nav button {
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 11px 12px;
+  min-height: 48px;
+  padding: 0 14px;
   border: 0;
-  border-radius: 8px;
-  color: #526074;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  color: #aeb7c5;
   background: transparent;
   text-align: left;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 nav button.active,
 nav button:hover {
-  color: #102033;
-  background: #eef4f1;
+  color: #ffffff;
+  background: #1d222c;
+  border-left-color: #1e9af0;
 }
 
 .shell {
   min-width: 0;
-  padding: 30px;
+  min-height: 100vh;
+  padding: 0 22px 22px;
+  background: #ffffff;
+}
+
+.transfer-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  padding: 0 18px 14px;
+}
+
+.transfer-shell .topbar {
+  margin: 0 -18px 8px;
+}
+
+.transfer-shell .actions {
+  display: none;
+}
+
+.transfer-shell .topbar h1 {
+  margin-top: 2px;
+  font-size: 24px;
+}
+
+.transfer-shell .topbar p {
+  font-size: 11px;
+}
+
+.transfer-shell .actions button,
+.transfer-shell .session-box {
+  min-height: 34px;
+}
+
+.transfer-shell .data-alert {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 7px 10px;
 }
 
 .topbar {
@@ -141,7 +200,11 @@ nav button:hover {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 24px;
+  min-height: 42px;
+  margin: 0 -22px 18px;
+  padding: 0 14px 0 22px;
+  color: #ffffff;
+  background: #1e9af0;
 }
 
 .topbar p,
@@ -150,15 +213,16 @@ nav button:hover {
 }
 
 .topbar p {
-  color: #748094;
-  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .topbar h1 {
-  margin-top: 6px;
-  font-size: clamp(28px, 4vw, 42px);
+  margin-top: 0;
+  color: #ffffff;
+  font-size: 18px;
   letter-spacing: 0;
 }
 
@@ -456,6 +520,26 @@ button:disabled {
   padding: 12px 14px;
   color: #116447;
   background: #e6f5ee;
+}
+
+.data-alert {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #f0c978;
+  border-radius: 8px;
+  color: #7a4b00;
+  background: #fff7e6;
+}
+
+.data-alert strong {
+  font-size: 13px;
+}
+
+.data-alert span {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .form-message {
@@ -845,6 +929,236 @@ button:disabled {
   font-size: 18px;
 }
 
+.transfer-workspace {
+  display: grid;
+  flex: 1;
+  gap: 8px;
+  min-height: 0;
+}
+
+.transfer-panel {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.transfer-title-row {
+  display: grid;
+  grid-template-columns: minmax(150px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.transfer-title-row h2,
+.transfer-title-row p {
+  margin: 0;
+}
+
+.transfer-title-row h2 {
+  font-size: 17px;
+}
+
+.transfer-stepper {
+  display: flex;
+  gap: 3px;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.transfer-stepper span {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 5px 8px;
+  border: 1px solid #d9dfe8;
+  color: #7a8597;
+  background: #f6f8fb;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.transfer-stepper span.active {
+  border-color: #4a90e2;
+  color: #0968c8;
+  background: #eaf4ff;
+}
+
+.transfer-filter-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: end;
+  margin-bottom: 6px;
+  padding: 6px;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #fbfcfe;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.transfer-filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.transfer-filter-bar label {
+  flex: 0 0 82px;
+  gap: 2px;
+  margin: 0;
+  font-size: 10px;
+}
+
+.transfer-filter-bar label:nth-child(3) {
+  flex-basis: 120px;
+}
+
+.transfer-filter-bar label:nth-child(4) {
+  flex-basis: 72px;
+}
+
+.transfer-filter-bar button {
+  flex: 0 0 auto;
+}
+
+.transfer-filter-bar input,
+.transfer-filter-bar select {
+  min-height: 30px;
+  padding: 0 5px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.transfer-filter-bar button {
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.transfer-status-strip {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.3fr) repeat(6, minmax(0, 1fr));
+  margin-bottom: 6px;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  overflow: hidden;
+  scrollbar-width: none;
+}
+
+.transfer-status-strip div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  gap: 8px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 5px 8px;
+  border-right: 1px solid #dfe6ee;
+  background: #ffffff;
+}
+
+.transfer-status-strip div:first-child {
+  flex-basis: auto;
+}
+
+.transfer-status-strip div:last-child {
+  border-right: 0;
+}
+
+.transfer-status-strip span {
+  display: block;
+  overflow: hidden;
+  color: #7a8597;
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-status-strip strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 0;
+  color: #162033;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-actions-row {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 6px;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.transfer-actions-row::-webkit-scrollbar {
+  display: none;
+}
+
+.transfer-actions-row .check-control {
+  flex: 0 0 auto;
+  min-height: 30px;
+  margin-right: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.transfer-actions-row button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.transfer-table-wrap {
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.transfer-table {
+  min-width: 1420px;
+}
+
+.transfer-table th,
+.transfer-table td {
+  height: 30px;
+  padding: 5px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.transfer-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+}
+
+.transfer-table tfoot td {
+  position: sticky;
+  bottom: 0;
+  border-top: 1px solid #e2c985;
+  background: #fff2cf;
+  color: #162033;
+  font-weight: 900;
+  z-index: 1;
+}
+
 .muted {
   color: #7a8597;
   font-size: 12px;
@@ -867,16 +1181,42 @@ button:disabled {
 
 @media (max-width: 1100px) {
   #app {
-    grid-template-columns: 1fr;
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+
+  #app.transfer-app {
+    grid-template-rows: none;
   }
 
   .sidebar {
-    position: static;
-    height: auto;
+    position: sticky;
+    height: 100vh;
+    padding: 0;
+  }
+
+  .brand {
+    margin-bottom: 0;
   }
 
   nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: grid;
+    gap: 0;
+    overflow-x: visible;
+    padding: 6px 0 0;
+  }
+
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  nav button {
+    flex: none;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 14px;
+    border: 0;
+    border-left: 3px solid transparent;
+    background: transparent;
   }
 
   .kpis,
@@ -884,34 +1224,71 @@ button:disabled {
   .lower {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .transfer-title-row {
+    grid-template-columns: minmax(150px, auto) minmax(0, 1fr);
+  }
+
+  .transfer-status-strip {
+    grid-template-columns: minmax(96px, 1.3fr) repeat(6, minmax(0, 1fr));
+  }
+
+  .transfer-status-strip div:nth-child(2n) {
+    border-right: 1px solid #dfe6ee;
+  }
+
+  .transfer-status-strip div:last-child {
+    border-right: 0;
+  }
+
+  .transfer-filter-bar {
+    grid-template-columns: repeat(2, minmax(112px, 128px)) minmax(180px, 1fr) minmax(116px, 132px) auto auto;
+  }
+
+  .transfer-shell {
+    height: 100vh;
+    min-height: 0;
+    padding: 0 14px 14px;
+  }
+
+  .transfer-shell .topbar {
+    margin: 0 -14px 8px;
+  }
 }
 
 @media (max-width: 720px) {
   body {
-    background: #f4f6f8;
+    background: #eef3f7;
+  }
+
+  #app {
+    grid-template-columns: 150px minmax(0, 1fr);
   }
 
   .shell {
-    padding: 14px;
+    padding: 0 12px 12px;
   }
 
   .sidebar {
     position: sticky;
     top: 0;
     z-index: 10;
-    padding: 12px 12px 10px;
-    border-right: 0;
-    border-bottom: 1px solid #e4e8ee;
-    background: rgba(255, 255, 255, 0.98);
+    height: 100vh;
+    padding: 0;
+    border-right: 1px solid #252b37;
+    border-bottom: 0;
+    background: #303746;
   }
 
   .brand {
-    margin-bottom: 10px;
+    min-height: 42px;
+    margin-bottom: 0;
+    padding: 0 10px;
   }
 
   .brand-mark {
-    width: 36px;
-    height: 36px;
+    width: 24px;
+    height: 24px;
   }
 
   .brand small {
@@ -920,31 +1297,33 @@ button:disabled {
 
   .topbar,
   .actions {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 10px;
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
   }
 
   .topbar {
-    margin-bottom: 14px;
+    min-height: 42px;
+    margin: 0 -12px 12px;
+    padding: 0 10px 0 12px;
   }
 
   .topbar h1 {
-    font-size: 26px;
+    font-size: 16px;
   }
 
   .actions button,
   .panel-head button,
   .wide,
   .session-box button {
-    min-height: 44px;
+    min-height: 34px;
   }
 
   .session-box {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: inline-flex;
+    grid-template-columns: none;
     align-items: center;
-    width: 100%;
+    width: auto;
   }
 
   .session-box span {
@@ -953,11 +1332,10 @@ button:disabled {
   }
 
   nav {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    scrollbar-width: none;
+    display: grid;
+    gap: 0;
+    overflow-x: visible;
+    padding: 6px 0 0;
   }
 
   nav::-webkit-scrollbar {
@@ -965,19 +1343,21 @@ button:disabled {
   }
 
   nav button {
-    flex: 0 0 auto;
-    width: auto;
-    min-height: 40px;
-    padding: 0 12px;
-    border: 1px solid #e2e7ee;
-    background: #ffffff;
-    font-size: 13px;
+    flex: none;
+    width: 100%;
+    min-height: 42px;
+    padding: 0 10px;
+    border: 0;
+    border-left: 3px solid transparent;
+    color: #aeb7c5;
+    background: transparent;
+    font-size: 12px;
     font-weight: 800;
-    white-space: nowrap;
+    white-space: normal;
   }
 
   nav button.active {
-    border-color: #b9d8cd;
+    border-left-color: #1e9af0;
   }
 
   .panel {
@@ -1046,6 +1426,29 @@ button:disabled {
 
   .date-filter {
     grid-template-columns: 1fr;
+  }
+
+  .transfer-status-strip,
+  .transfer-filter-bar {
+    grid-template-columns: minmax(96px, 1.3fr) repeat(6, minmax(0, 1fr));
+  }
+
+  .transfer-status-strip div {
+    border-right: 1px solid #dfe6ee;
+    border-bottom: 0;
+  }
+
+  .transfer-status-strip div:last-child {
+    border-right: 0;
+  }
+
+  .transfer-filter-bar {
+    grid-template-columns: repeat(2, minmax(112px, 128px)) minmax(180px, 1fr) minmax(116px, 132px) auto auto;
+  }
+
+  .bulk-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .document-preview {

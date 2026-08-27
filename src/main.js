@@ -6,9 +6,13 @@ const SUPABASE_URL =
 const SUPABASE_ANON_KEY =
   env.VITE_SUPABASE_ANON_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlxZW10c2JkbnlwZ21rdXluY3hoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNjYwMTUsImV4cCI6MjA5NTg0MjAxNX0.gwgdCncqRKKgC8ebj7qIdT-vA4J-wOVd2O9DSa7xEOs";
+const LOCAL_PREVIEW_MODE =
+  typeof window !== "undefined" &&
+  ["localhost", "127.0.0.1"].includes(window.location?.hostname || "") &&
+  new URLSearchParams(window.location?.search || "").has("preview");
 
 const supabase =
-  SUPABASE_URL && SUPABASE_ANON_KEY
+  !LOCAL_PREVIEW_MODE && SUPABASE_URL && SUPABASE_ANON_KEY
     ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
     : null;
 const CONSTRUCTION_FILE_BUCKET = "construction-start-files";
@@ -79,6 +83,163 @@ const fallback = {
   storeQuotes: []
 };
 
+const previewData = {
+  ...fallback,
+  payments: [
+    {
+      id: 101,
+      store: "성수 플래그십",
+      vendor: "도원인테리어",
+      payment_item: "목작업",
+      estimate_total: 12000000,
+      payment_type: "선금 50%",
+      amount: 6000000,
+      vendor_bank: "신한은행",
+      vendor_account_number: "110-000-000001",
+      vendor_account_holder: "도원인테리어",
+      tax_type: "일반 송금",
+      withholding_amount: 0,
+      net_amount: 6000000,
+      attachment_files: {
+        estimate_files: [{ name: "성수_목작업_견적서.pdf", size: 245760, url: "#" }],
+        tax_invoice_files: [{ name: "성수_목작업_세금계산서.pdf", size: 184320, url: "#" }]
+      },
+      estimate_group_mode: "매장별 항목 합산",
+      estimate_group_key: "성수 플래그십::목작업",
+      memo: "미리보기 승인 건",
+      status: "승인",
+      requested_at: "2026-08-25",
+      transfer_status: "미작성"
+    },
+    {
+      id: 102,
+      store: "부산 센텀",
+      vendor: "한빛전기",
+      payment_item: "전기",
+      estimate_total: 8800000,
+      payment_type: "일시 지급",
+      amount: 8800000,
+      vendor_bank: "국민은행",
+      vendor_account_number: "004-000-000002",
+      vendor_account_holder: "한빛전기",
+      tax_type: "사업소득 3.3%",
+      withholding_amount: 290400,
+      net_amount: 8509600,
+      attachment_files: {
+        id_card_files: [{ name: "한빛전기_신분증.pdf", size: 126000, url: "#" }]
+      },
+      estimate_group_mode: "매장별 항목 합산",
+      estimate_group_key: "부산 센텀::전기",
+      memo: "파일 생성 완료 샘플",
+      status: "승인",
+      requested_at: "2026-08-24",
+      transfer_status: "파일생성",
+      exported_at: "2026-08-26T09:20:00+09:00",
+      transfer_batch_id: "TR-PREVIEW-001"
+    },
+    {
+      id: 103,
+      store: "대전 둔산",
+      vendor: "계좌미등록업체",
+      payment_item: "설비",
+      estimate_total: 4300000,
+      payment_type: "일시 지급",
+      amount: 4300000,
+      vendor_bank: "",
+      vendor_account_number: "",
+      vendor_account_holder: "",
+      tax_type: "일반 송금",
+      withholding_amount: 0,
+      net_amount: 4300000,
+      attachment_files: {},
+      estimate_group_mode: "매장별 항목 합산",
+      estimate_group_key: "대전 둔산::설비",
+      memo: "계좌 확인 필요 샘플",
+      status: "승인",
+      requested_at: "2026-08-23",
+      transfer_status: "미작성"
+    },
+    {
+      id: 104,
+      store: "제주 노형",
+      vendor: "도원인테리어",
+      payment_item: "타일",
+      estimate_total: 3200000,
+      payment_type: "일시 지급",
+      amount: 3200000,
+      vendor_bank: "신한은행",
+      vendor_account_number: "110-000-000001",
+      vendor_account_holder: "도원인테리어",
+      tax_type: "일반 송금",
+      withholding_amount: 0,
+      net_amount: 3200000,
+      attachment_files: {},
+      estimate_group_mode: "매장별 항목 합산",
+      estimate_group_key: "제주 노형::타일",
+      memo: "송금완료 제외 샘플",
+      status: "승인",
+      requested_at: "2026-08-22",
+      transfer_status: "송금완료",
+      transferred_at: "2026-08-26T14:30:00+09:00"
+    },
+    {
+      id: 105,
+      store: "성수 플래그십",
+      vendor: "서진설비",
+      payment_item: "소방설비",
+      estimate_total: 2800000,
+      payment_type: "잔금 50%",
+      amount: 1400000,
+      vendor_bank: "하나은행",
+      vendor_account_number: "352-000-000003",
+      vendor_account_holder: "서진설비",
+      tax_type: "일반 송금",
+      withholding_amount: 0,
+      net_amount: 1400000,
+      attachment_files: {},
+      estimate_group_mode: "매장별 항목 합산",
+      estimate_group_key: "성수 플래그십::소방설비",
+      memo: "승인 전 검토 샘플",
+      status: "신청",
+      requested_at: "2026-08-27",
+      transfer_status: "미작성"
+    }
+  ],
+  constructionStarts: [
+    {
+      id: 201,
+      store_name: "부산 센텀",
+      area: 47,
+      drawing_note: "도면 확인 완료",
+      drawing_files: [{ name: "부산센텀_도면.pdf", size: 312000, url: "#" }],
+      wall_upper_count: 8,
+      wall_lower_count: 8,
+      display_fixture_count: 6,
+      counter_drawer_1200_count: 2,
+      counter_shelf_1800_count: 1,
+      counter_shelf_1600_count: 1,
+      table_count: 4,
+      base_photo_note: "기초 사진 등록",
+      base_photo_files: [{ name: "부산센텀_기초사진.jpg", size: 520000, url: "#" }],
+      special_notes: "미리보기 데이터",
+      created_at: "2026-08-20T09:00:00+09:00"
+    }
+  ],
+  storeQuotes: [
+    {
+      store_name: "성수 플래그십",
+      quote_status: "견적 확정",
+      margin_rate: 35,
+      direct_cost: 7400000,
+      fixture_cost: 0,
+      cost_total: 7400000,
+      supply_amount: 9990000,
+      vat_amount: 999000,
+      total_amount: 10989000
+    }
+  ]
+};
+
 const furnitureCostItems = [
   { group: "벽장", name: "상부장", baseUnit: 115600, allocationUnit: 57100, quantity: 40, madeAmount: 1260000 },
   { group: "벽장", name: "하부장", baseUnit: 167500, allocationUnit: 63500, quantity: 40, madeAmount: 2240000 },
@@ -96,6 +257,7 @@ const nav = [
   "공사 시작 접수",
   "결제 신청",
   "결제 계좌 관리",
+  "첨부 파일 보기",
   "매장별 공사 관리",
   "진열장 원가 배분",
   "견적서 생성",
@@ -106,7 +268,7 @@ const nav = [
 
 const roleMenus = {
   "전체 관리자": nav,
-  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "결제 계좌 관리", "진열장 원가 배분"]
+  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "결제 계좌 관리", "첨부 파일 보기", "진열장 원가 배분"]
 };
 
 const roleLabels = {
@@ -122,6 +284,7 @@ const viewDescriptions = {
   "견적서 생성": ["매장/업체 기준 견적서 생성", "공사항목별 금액 자동 합산", "PDF/문서 다운로드"],
   "계약서 생성": ["업체 정보 기반 계약서 생성", "계좌/사업자 정보 자동 반영", "계약 상태 관리"],
   "은행 이체 파일 생성": ["승인된 결제 건만 추출", "은행 업로드용 파일 생성", "이체 전 검증"],
+  "첨부 파일 보기": ["결제 증빙 확인", "업체 서류 확인", "공사 시작 파일 확인"],
   "관리자 설정": ["사용자 권한", "승인 단계", "상태/분류 코드 관리"]
 };
 
@@ -129,9 +292,11 @@ let currentData = fallback;
 let activeView = "대시보드";
 let activeRole = "인테리어 공사실장";
 let currentUser = null;
-let transferDateFilter = { startDate: "", endDate: "" };
+let transferDateFilter = { startDate: "", endDate: "", keyword: "", readyStatus: "all" };
 let selectedDocumentStore = "";
 let storeManagementFilter = "진행중";
+let dataLoadWarnings = [];
+let editingPaymentId = null;
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -153,11 +318,15 @@ const paymentRatio = (type) =>
   })[type] || 0;
 const withholdingRate = (type) => (type === "사업소득 3.3%" ? 0.033 : 0);
 const escapeAttr = (value) =>
-  String(value || "")
+  String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+const safeText = (value, fallback = "-") => {
+  const text = value ?? "";
+  return escapeAttr(text === "" ? fallback : text);
+};
 const safeFileName = (name) => String(name || "file").replace(/[^\w.\-가-힣]/g, "_");
 
 const statusClass = (status) => {
@@ -178,7 +347,11 @@ const statusClass = (status) => {
 };
 
 async function loadData() {
-  if (!supabase) return fallback;
+  dataLoadWarnings = [];
+  if (!supabase) {
+    dataLoadWarnings = [LOCAL_PREVIEW_MODE ? "로컬 미리보기 데이터로 표시 중입니다." : "Supabase 연결 정보가 없어 임시 데이터로 표시 중입니다."];
+    return LOCAL_PREVIEW_MODE ? previewData : fallback;
+  }
 
   const [payments, stores, vendors, constructionStarts, userRoles, paymentItems, storeQuotes] = await Promise.all([
     supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(500),
@@ -189,6 +362,26 @@ async function loadData() {
     supabase.from("construction_cost_parts").select("part_name").order("part_name", { ascending: true }),
     supabase.from("store_quotes").select("*").order("updated_at", { ascending: false })
   ]);
+
+  const requiredSources = [
+    ["결제 신청", payments],
+    ["매장", stores],
+    ["업체/계좌", vendors]
+  ];
+  const failedRequired = requiredSources.find(([, result]) => result.error);
+  if (failedRequired) {
+    throw new Error(`${failedRequired[0]} 데이터를 불러오지 못했습니다. DB 연결과 권한을 확인해 주세요. (${failedRequired[1].error.message})`);
+  }
+
+  [
+    ["공사 시작", constructionStarts],
+    ["사용자 권한", userRoles],
+    ["공사항목", paymentItems],
+    ["매장 견적", storeQuotes]
+  ].forEach(([label, result]) => {
+    if (result.error) dataLoadWarnings.push(`${label}: ${result.error.message}`);
+  });
+
   const uniquePaymentItems = paymentItems.error
     ? fallback.paymentItems
     : [...new Set([...basePaymentItems, ...paymentItems.data.map((item) => item.part_name).filter(Boolean)])];
@@ -202,6 +395,38 @@ async function loadData() {
     paymentItems: uniquePaymentItems,
     storeQuotes: storeQuotes.error ? fallback.storeQuotes : storeQuotes.data
   };
+}
+
+function renderDataLoadError(error) {
+  const app = document.querySelector("#app");
+  app.className = "auth-shell";
+  app.innerHTML = `
+    <main class="auth-page">
+      <section class="auth-panel">
+        <div class="brand auth-brand">
+          <span class="brand-mark">H</span>
+          <div>
+            <strong>HAKA Construction</strong>
+            <small>공사비 관리 시스템</small>
+          </div>
+        </div>
+        <h1>데이터 연결 확인 필요</h1>
+        <p>운영 데이터가 안전하게 확인되지 않아 화면 표시를 멈췄습니다.</p>
+        <div class="form-message error">${escapeAttr(error.message || "데이터를 불러오지 못했습니다.")}</div>
+        <button class="primary wide" type="button" data-retry-load>다시 불러오기</button>
+      </section>
+    </main>
+  `;
+  document.querySelector("[data-retry-load]")?.addEventListener("click", startApp);
+}
+
+async function refreshDataAndRender(notice = "") {
+  try {
+    currentData = await loadData();
+    render(notice);
+  } catch (error) {
+    renderDataLoadError(error);
+  }
 }
 
 async function loadUserRole(user) {
@@ -219,9 +444,8 @@ async function loadUserRole(user) {
 
 async function startApp() {
   if (!supabase) {
-    currentData = await loadData();
     activeRole = "전체 관리자";
-    render();
+    await refreshDataAndRender();
     return;
   }
 
@@ -235,8 +459,7 @@ async function startApp() {
 
   activeRole = await loadUserRole(currentUser);
   activeView = visibleNav()[0];
-  currentData = await loadData();
-  render();
+  await refreshDataAndRender();
 }
 
 function findDuplicateRisk(data, vendor, amount) {
@@ -349,6 +572,11 @@ async function submitPayment(event) {
   const submitButton = form.querySelector("button[type='submit']");
   const message = form.querySelector("[data-form-message]");
   const formData = new FormData(form);
+  const paymentId = Number(formData.get("payment_id") || 0);
+  const editingPayment = paymentId
+    ? currentData.payments.find((payment) => payment.id === paymentId && payment.status === "신청")
+    : null;
+  const isEditing = Boolean(editingPayment);
   const store = String(formData.get("store") || "").trim();
   const vendor = String(formData.get("vendor") || "").trim();
   const paymentItem = String(formData.get("payment_item") || "").trim();
@@ -363,10 +591,22 @@ async function submitPayment(event) {
   const vendorAccountHolder = String(formData.get("vendor_account_holder") || "").trim();
   const memo = String(formData.get("memo") || "").trim();
   const duplicate = findDuplicateRisk(currentData, vendor, amount);
+  const duplicateRisk = duplicate?.id === paymentId ? null : duplicate;
   const sameStoreItem = findSameStoreItemRisk(currentData, store, paymentItem);
+  const sameStoreItemRisk = sameStoreItem?.id === paymentId ? null : sameStoreItem;
   const estimateFiles = formData.getAll("estimate_files").filter((file) => file.size > 0);
   const taxInvoiceFiles = formData.getAll("tax_invoice_files").filter((file) => file.size > 0);
   const idCardFiles = formData.getAll("id_card_files").filter((file) => file.size > 0);
+  const existingAttachments = editingPayment?.attachment_files || {};
+  const hasEstimateFiles = estimateFiles.length || (existingAttachments.estimate_files || []).length;
+  const hasTaxInvoiceFiles = taxInvoiceFiles.length || (existingAttachments.tax_invoice_files || []).length;
+  const hasIdCardFiles = idCardFiles.length || (existingAttachments.id_card_files || []).length;
+
+  if (paymentId && !editingPayment) {
+    message.textContent = "수정할 수 없는 결제 신청입니다. 이미 승인/반려 처리됐는지 확인해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
 
   if (!store || !vendor || !paymentItem || !estimateTotal || !amount || !vendorBank || !vendorAccountNumber || !vendorAccountHolder) {
     message.textContent = "매장명, 업체, 결제 항목, 견적 총액, 신청 금액, 이체 계좌를 모두 입력해 주세요.";
@@ -374,13 +614,13 @@ async function submitPayment(event) {
     return;
   }
 
-  if (taxType === "일반 송금" && (!estimateFiles.length || !taxInvoiceFiles.length)) {
+  if (taxType === "일반 송금" && (!hasEstimateFiles || !hasTaxInvoiceFiles)) {
     message.textContent = "일반 송금은 견적서와 세금계산서를 첨부해야 합니다.";
     message.className = "form-message error";
     return;
   }
 
-  if (taxType === "사업소득 3.3%" && !idCardFiles.length) {
+  if (taxType === "사업소득 3.3%" && !hasIdCardFiles) {
     message.textContent = "사업소득 3.3% 지급은 주민등록증 첨부가 필요합니다.";
     message.className = "form-message error";
     return;
@@ -389,31 +629,40 @@ async function submitPayment(event) {
   submitButton.disabled = true;
   submitButton.textContent = "저장 중";
   message.textContent = "첨부 자료를 업로드하고 있습니다.";
-  message.className = duplicate ? "form-message warning" : "form-message";
+  message.className = duplicateRisk || sameStoreItemRisk ? "form-message warning" : "form-message";
 
   let attachmentFiles = {};
   try {
     attachmentFiles = {
-      estimate_files: await uploadPaymentFiles(estimateFiles, "estimates"),
-      tax_invoice_files: await uploadPaymentFiles(taxInvoiceFiles, "tax-invoices"),
-      id_card_files: await uploadPaymentFiles(idCardFiles, "id-cards")
+      estimate_files: [
+        ...(existingAttachments.estimate_files || []),
+        ...(await uploadPaymentFiles(estimateFiles, "estimates"))
+      ],
+      tax_invoice_files: [
+        ...(existingAttachments.tax_invoice_files || []),
+        ...(await uploadPaymentFiles(taxInvoiceFiles, "tax-invoices"))
+      ],
+      id_card_files: [
+        ...(existingAttachments.id_card_files || []),
+        ...(await uploadPaymentFiles(idCardFiles, "id-cards"))
+      ]
     };
   } catch (error) {
     submitButton.disabled = false;
-    submitButton.textContent = "검토 요청 생성";
+    submitButton.textContent = isEditing ? "수정 저장" : "검토 요청 생성";
     message.textContent = `첨부 업로드 실패: ${error.message}`;
     message.className = "form-message error";
     return;
   }
 
-  message.textContent = duplicate
-    ? `중복 의심: ${duplicate.store} / ${formatKRW(duplicate.amount)} 건과 비슷합니다.`
-    : sameStoreItem
+  message.textContent = duplicateRisk
+    ? `중복 의심: ${duplicateRisk.store} / ${formatKRW(duplicateRisk.amount)} 건과 비슷합니다.`
+    : sameStoreItemRisk
       ? `확인 필요: ${store} / ${paymentItem} 항목에 기존 신청이 있습니다. 중복이 아니면 견적서에는 같은 항목 합계로 반영됩니다.`
-    : "신청 건을 저장하고 있습니다.";
-  message.className = duplicate || sameStoreItem ? "form-message warning" : "form-message";
+    : isEditing ? "수정 내용을 저장하고 있습니다." : "신청 건을 저장하고 있습니다.";
+  message.className = duplicateRisk || sameStoreItemRisk ? "form-message warning" : "form-message";
 
-  const newPayment = {
+  const paymentPayload = {
     store,
     vendor,
     payment_item: paymentItem,
@@ -431,16 +680,24 @@ async function submitPayment(event) {
     estimate_group_key: `${store}::${paymentItem}`,
     memo,
     status: "신청",
-    requested_at: today()
+    requested_at: editingPayment?.requested_at || today()
   };
 
   if (!supabase) {
-    fallback.payments = [{ id: Date.now(), ...newPayment }, ...fallback.payments];
+    fallback.payments = isEditing
+      ? fallback.payments.map((payment) => (payment.id === paymentId ? { ...payment, ...paymentPayload } : payment))
+      : [{ id: Date.now(), ...paymentPayload }, ...fallback.payments];
   } else {
-    const { error } = await supabase.from("payments").insert(newPayment);
+    const { error } = isEditing
+      ? await supabase
+          .from("payments")
+          .update(paymentPayload)
+          .eq("id", paymentId)
+          .eq("status", "신청")
+      : await supabase.from("payments").insert(paymentPayload);
     if (error) {
       submitButton.disabled = false;
-      submitButton.textContent = "검토 요청 생성";
+      submitButton.textContent = isEditing ? "수정 저장" : "검토 요청 생성";
       message.textContent = `저장 실패: ${error.message}`;
       message.className = "form-message error";
       return;
@@ -448,8 +705,8 @@ async function submitPayment(event) {
   }
 
   form.reset();
-  currentData = await loadData();
-  render(duplicate ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
+  editingPaymentId = null;
+  await refreshDataAndRender(isEditing ? "결제 신청 수정이 저장됐습니다." : duplicateRisk ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
 }
 
 async function submitVendor(event) {
@@ -531,9 +788,8 @@ async function submitVendor(event) {
   }
 
   form.reset();
-  currentData = await loadData();
   activeView = "결제 계좌 관리";
-  render(vendorId ? "결제 계좌 정보가 수정됐습니다." : "결제 계좌 정보가 저장됐습니다.");
+  await refreshDataAndRender(vendorId ? "결제 계좌 정보가 수정됐습니다." : "결제 계좌 정보가 저장됐습니다.");
 }
 
 async function submitStore(event) {
@@ -576,9 +832,8 @@ async function submitStore(event) {
   }
 
   form.reset();
-  currentData = await loadData();
   activeView = "매장별 공사 관리";
-  render("매장 공사 정보가 저장됐습니다.");
+  await refreshDataAndRender("매장 공사 정보가 저장됐습니다.");
 }
 
 async function submitConstructionStart(event) {
@@ -651,9 +906,8 @@ async function submitConstructionStart(event) {
   }
 
   form.reset();
-  currentData = await loadData();
   activeView = "공사 시작 접수";
-  render("공사 시작 정보가 저장됐습니다. 결제 신청 매장 검색에도 반영됐습니다.");
+  await refreshDataAndRender("공사 시작 정보가 저장됐습니다. 결제 신청 매장 검색에도 반영됐습니다.");
 }
 
 async function updatePaymentStatus(paymentId, status) {
@@ -678,16 +932,16 @@ async function updatePaymentStatus(paymentId, status) {
     }
 
     if (!data) {
-      currentData = await loadData();
+      if (editingPaymentId === paymentId) editingPaymentId = null;
       activeView = "결제 신청";
-      render("상태 변경 실패: 이미 처리됐거나 권한이 없습니다. 새로고침 후 다시 확인해 주세요.");
+      await refreshDataAndRender("상태 변경 실패: 이미 처리됐거나 권한이 없습니다. 새로고침 후 다시 확인해 주세요.");
       return;
     }
   }
 
-  currentData = await loadData();
+  if (editingPaymentId === paymentId) editingPaymentId = null;
   activeView = "결제 신청";
-  render(`결제 신청이 ${status} 처리됐습니다.`);
+  await refreshDataAndRender(`결제 신청이 ${status} 처리됐습니다.`);
 }
 
 async function approveSelectedPayments(paymentIds) {
@@ -701,9 +955,8 @@ async function approveSelectedPayments(paymentIds) {
     fallback.payments = fallback.payments.map((payment) =>
       ids.includes(payment.id) && payment.status === "신청" ? { ...payment, status: "승인" } : payment
     );
-    currentData = await loadData();
     activeView = "결제 신청";
-    render(`${ids.length}건을 승인 처리했습니다.`);
+    await refreshDataAndRender(`${ids.length}건을 승인 처리했습니다.`);
     return;
   }
 
@@ -719,9 +972,8 @@ async function approveSelectedPayments(paymentIds) {
     return;
   }
 
-  currentData = await loadData();
   activeView = "결제 신청";
-  render(`${data?.length || 0}건을 승인 처리했습니다. 이제 엑셀 다운로드를 누르면 승인된 건이 내려갑니다.`);
+  await refreshDataAndRender(`${data?.length || 0}건을 승인 처리했습니다. 이제 엑셀 다운로드를 누르면 승인된 건이 내려갑니다.`);
 }
 
 async function saveStoreQuote(storeName, status) {
@@ -765,10 +1017,9 @@ async function saveStoreQuote(storeName, status) {
     }
   }
 
-  currentData = await loadData();
   selectedDocumentStore = storeName;
   activeView = status === "계약 완료" ? "견적서 생성" : "매장별 공사 관리";
-  render(status === "계약 완료" ? `${storeName} 공사 완료 처리됐습니다. 견적서와 계약서를 확인할 수 있습니다.` : `${storeName} 견적이 확정됐습니다.`);
+  await refreshDataAndRender(status === "계약 완료" ? `${storeName} 공사 완료 처리됐습니다. 견적서와 계약서를 확인할 수 있습니다.` : `${storeName} 견적이 확정됐습니다.`);
 }
 
 function normalizeBankName(bank) {
@@ -807,6 +1058,44 @@ function approvedPayments(data) {
   return data.payments.filter((payment) => payment.status === "승인");
 }
 
+function paymentTransferStatus(payment) {
+  return String(payment.transfer_status || "미작성").trim() || "미작성";
+}
+
+function isTransferCompleted(payment) {
+  return ["송금완료", "이체완료"].includes(paymentTransferStatus(payment));
+}
+
+function transferCandidatePayments(data) {
+  return approvedPayments(data).filter((payment) => !isTransferCompleted(payment));
+}
+
+function transferStatusClass(record) {
+  if (!record.ready) return "red";
+  const status = paymentTransferStatus(record.payment);
+  if (isTransferCompleted(record.payment)) return "green";
+  if (status === "파일생성") return "blue";
+  return "gray";
+}
+
+function transferStatusLabel(record) {
+  if (!record.ready) return "계좌정보 확인";
+  const status = paymentTransferStatus(record.payment);
+  return status === "미작성" ? "파일 미생성" : status;
+}
+
+function compactDateTime(value) {
+  const text = String(value || "");
+  if (!text) return "";
+  return text.includes("T") ? text.slice(0, 16).replace("T", " ") : text.slice(0, 10);
+}
+
+function createTransferBatchId() {
+  const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `TR-${timestamp}-${suffix}`;
+}
+
 function bankTransferRecord(data, payment) {
   const vendor = findVendor(data, payment);
   const bank = payment.vendor_bank || vendor.bank;
@@ -840,19 +1129,122 @@ function isWithinDateRange(dateValue, startDate, endDate) {
 }
 
 function bankTransferRecords(data, filters = {}) {
-  return approvedPayments(data)
-    .filter((payment) => isWithinDateRange(payment.requested_at, filters.startDate, filters.endDate))
-    .map((payment) => bankTransferRecord(data, payment));
+  const selectedIds = filters.selectedIds?.length ? new Set(filters.selectedIds.map(String)) : null;
+  const hasDateScope = Boolean(filters.startDate || filters.endDate);
+  const keyword = String(filters.keyword || "").trim().toLowerCase();
+  const readyStatus = filters.readyStatus || "all";
+
+  return transferCandidatePayments(data)
+    .filter((payment) => !hasDateScope || isWithinDateRange(payment.requested_at, filters.startDate, filters.endDate))
+    .filter((payment) => !selectedIds || selectedIds.has(String(payment.id)))
+    .map((payment) => bankTransferRecord(data, payment))
+    .filter((record) => {
+      if (!keyword) return true;
+      return [
+        record.payment.store,
+        record.payment.vendor,
+        record.payment.payment_item,
+        record.bank,
+        record.account,
+        record.holder
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(keyword);
+    })
+    .filter((record) => {
+      if (readyStatus === "ready") return record.ready;
+      if (readyStatus === "missing") return !record.ready;
+      return true;
+    });
 }
 
-function excelCell(value, style = "") {
-  return `<td${style ? ` style="${style}"` : ""}>${escapeAttr(value)}</td>`;
+async function updateTransferExportStatus(records, batchId) {
+  const ids = [...new Set(records.map((record) => Number(record.payment.id)).filter(Boolean))];
+  if (!ids.length) return { updated: 0 };
+
+  const exportedAt = new Date().toISOString();
+  const transferPayload = {
+    transfer_batch_id: batchId,
+    exported_at: exportedAt,
+    transfer_status: "파일생성"
+  };
+
+  if (!supabase) {
+    fallback.payments = fallback.payments.map((payment) =>
+      ids.includes(payment.id) && payment.status === "승인" ? { ...payment, ...transferPayload } : payment
+    );
+    currentData = await loadData();
+    return { updated: ids.length };
+  }
+
+  const { data: updatedRows, error } = await supabase
+    .from("payments")
+    .update(transferPayload)
+    .in("id", ids)
+    .eq("status", "승인")
+    .select("id");
+
+  if (error) return { error };
+  return { updated: updatedRows?.length || 0 };
 }
 
-function downloadBankTransferFile(data, filters = {}) {
+async function markSelectedTransfersCompleted(paymentIds) {
+  const ids = [...new Set(paymentIds.map(Number).filter(Boolean))];
+  if (!ids.length) {
+    render("송금완료 처리할 이체건을 먼저 선택해 주세요.");
+    return;
+  }
+
+  if (!window.confirm(`${ids.length}건을 송금완료로 처리할까요? 처리 후 이체자료조회 대상에서 제외됩니다.`)) return;
+
+  const transferPayload = {
+    transfer_status: "송금완료",
+    transferred_at: new Date().toISOString(),
+    transfer_memo: "화면에서 송금완료 처리"
+  };
+
+  if (!supabase) {
+    fallback.payments = fallback.payments.map((payment) =>
+      ids.includes(payment.id) && payment.status === "승인" ? { ...payment, ...transferPayload } : payment
+    );
+    activeView = "은행 이체 파일 생성";
+    await refreshDataAndRender(`${ids.length}건을 송금완료 처리했습니다.`);
+    return;
+  }
+
+  const { data: updatedRows, error } = await supabase
+    .from("payments")
+    .update(transferPayload)
+    .in("id", ids)
+    .eq("status", "승인")
+    .select("id");
+
+  if (error) {
+    render(`송금완료 처리 실패: ${error.message}`);
+    return;
+  }
+
+  activeView = "은행 이체 파일 생성";
+  await refreshDataAndRender(`${updatedRows?.length || 0}건을 송금완료 처리했습니다.`);
+}
+
+async function downloadBankTransferFile(data, filters = {}) {
+  const hasSelectedScope = Array.isArray(filters.selectedIds) && filters.selectedIds.length > 0;
+  const hasDateScope = Boolean(filters.startDate || filters.endDate);
+  if (!hasSelectedScope && !hasDateScope) {
+    render("이체 파일은 전체 승인건을 자동으로 만들지 않습니다. 이체대상을 체크하거나 날짜 범위를 조회한 뒤 다운로드해 주세요.");
+    return;
+  }
+
   const readyRecords = bankTransferRecords(data, filters).filter((record) => record.ready);
   if (!readyRecords.length) {
     render("다운로드할 승인 완료 건이 없거나, 업체 계좌정보가 비어 있습니다.");
+    return;
+  }
+
+  if (!window.XLSX) {
+    render("엑셀 생성 모듈을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.");
     return;
   }
 
@@ -860,31 +1252,48 @@ function downloadBankTransferFile(data, filters = {}) {
   const rows = readyRecords.map((record) => [
     record.bank,
     record.account,
-    record.amount,
+    Math.round(Number(record.amount || 0)),
     record.holder
   ]);
-  const tableRows = [
-    `<tr>${headers.map((header) => excelCell(header)).join("")}</tr>`,
-    ...rows.map((row) => `<tr>${row.map((cell, index) => excelCell(cell, index === 1 ? "mso-number-format:'\\@';" : "")).join("")}</tr>`)
-  ];
-  const workbook = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-      <head>
-        <meta charset="UTF-8" />
-        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>입력정보</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-      </head>
-      <body><table>${tableRows.join("")}</table></body>
-    </html>`;
-  const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
+
+  const sheet = window.XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  for (let rowIndex = 2; rowIndex <= rows.length + 1; rowIndex += 1) {
+    const accountCell = sheet[`B${rowIndex}`];
+    const amountCell = sheet[`C${rowIndex}`];
+    if (accountCell) {
+      accountCell.t = "s";
+      accountCell.z = "@";
+    }
+    if (amountCell) {
+      amountCell.t = "n";
+      amountCell.z = "0";
+    }
+  }
+  sheet["!cols"] = [{ wch: 12 }, { wch: 22 }, { wch: 14 }, { wch: 24 }];
+
+  const workbook = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(workbook, sheet, "입력정보");
+  const output = window.XLSX.write(workbook, { bookType: "xls", type: "array" });
+  const blob = new Blob([output], { type: "application/vnd.ms-excel" });
   const url = URL.createObjectURL(blob);
+  const batchId = createTransferBatchId();
   const link = document.createElement("a");
   link.href = url;
   const period = filters.startDate || filters.endDate ? `_${filters.startDate || "처음"}_${filters.endDate || "오늘"}` : "";
-  link.download = `은행대량이체${period}_${today()}.xls`;
+  link.download = `은행대량이체${period}_${batchId}_${readyRecords.length}건.xls`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+
+  const tracking = await updateTransferExportStatus(readyRecords, batchId);
+  if (tracking.error) {
+    render(`이체 파일 ${readyRecords.length}건은 생성했지만 상태 저장에 실패했습니다: ${tracking.error.message}`);
+    return;
+  }
+
+  activeView = "은행 이체 파일 생성";
+  await refreshDataAndRender(`이체 파일 ${readyRecords.length}건을 생성하고 ${tracking.updated}건을 파일생성 상태로 표시했습니다.`);
 }
 
 function syncPaymentAmount(form) {
@@ -976,22 +1385,22 @@ function paymentRows(data) {
   return data.payments.map(
     (payment) => `
       <tr>
-        <td>${payment.store}</td>
-        <td>${payment.vendor}</td>
-        <td>${payment.vendor_bank || "-"}</td>
-        <td>${payment.vendor_account_number || "-"}</td>
-        <td>${payment.vendor_account_holder || "-"}</td>
-        <td>${payment.payment_item || "-"}</td>
+        <td>${safeText(payment.store)}</td>
+        <td>${safeText(payment.vendor)}</td>
+        <td>${safeText(payment.vendor_bank)}</td>
+        <td>${safeText(payment.vendor_account_number)}</td>
+        <td>${safeText(payment.vendor_account_holder)}</td>
+        <td>${safeText(payment.payment_item)}</td>
         <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
-        <td>${payment.payment_type || "일시 지급"}</td>
+        <td>${safeText(payment.payment_type, "일시 지급")}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
-        <td>${payment.tax_type || "일반 송금"}</td>
+        <td>${safeText(payment.tax_type, "일반 송금")}</td>
         <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
         <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
         <td>${paymentAttachmentSummary(payment)}</td>
-        <td>${payment.estimate_group_mode || "매장별 항목 합산"}</td>
-        <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
-        <td>${payment.requested_at}</td>
+        <td>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</td>
+        <td><span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span></td>
+        <td>${safeText(payment.requested_at)}</td>
       </tr>`
   );
 }
@@ -1000,32 +1409,32 @@ function paymentReviewRows(data, canApprove = false) {
   return data.payments.map(
     (payment) => `
       <tr>
-        <td>${payment.store}</td>
-        <td>${payment.vendor}</td>
-        <td>${payment.vendor_bank || "-"}</td>
-        <td>${payment.vendor_account_number || "-"}</td>
-        <td>${payment.vendor_account_holder || "-"}</td>
-        <td>${payment.payment_item || "-"}</td>
+        <td>${safeText(payment.store)}</td>
+        <td>${safeText(payment.vendor)}</td>
+        <td>${safeText(payment.vendor_bank)}</td>
+        <td>${safeText(payment.vendor_account_number)}</td>
+        <td>${safeText(payment.vendor_account_holder)}</td>
+        <td>${safeText(payment.payment_item)}</td>
         <td class="money">${formatKRW(payment.estimate_total || payment.amount)}</td>
-        <td>${payment.payment_type || "일시 지급"}</td>
+        <td>${safeText(payment.payment_type, "일시 지급")}</td>
         <td class="money">${formatKRW(payment.amount)}</td>
-        <td>${payment.tax_type || "일반 송금"}</td>
+        <td>${safeText(payment.tax_type, "일반 송금")}</td>
         <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
         <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
         <td>${paymentAttachmentSummary(payment)}</td>
-        <td>${payment.estimate_group_mode || "매장별 항목 합산"}</td>
-        <td><span class="badge ${statusClass(payment.status)}">${payment.status}</span></td>
-        <td>${payment.requested_at}</td>
+        <td>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</td>
+        <td><span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span></td>
+        <td>${safeText(payment.requested_at)}</td>
         <td>
           ${
             payment.status === "신청" && canApprove
               ? `<div class="row-actions">
                   <label class="check-control compact">
-                    <input type="checkbox" class="payment-select" value="${payment.id}" />
+                    <input type="checkbox" class="payment-select" value="${escapeAttr(payment.id)}" />
                     선택
                   </label>
-                  <button data-payment-id="${payment.id}" data-payment-status="승인">승인</button>
-                  <button data-payment-id="${payment.id}" data-payment-status="반려">반려</button>
+                  <button data-payment-id="${escapeAttr(payment.id)}" data-payment-status="승인">승인</button>
+                  <button data-payment-id="${escapeAttr(payment.id)}" data-payment-status="반려">반려</button>
                 </div>`
               : payment.status === "신청"
                 ? `<span class="muted">승인 대기</span>`
@@ -1042,72 +1451,81 @@ function paymentReviewCards(data, canApprove = false) {
   return `
     <div class="payment-review-list">
       ${data.payments
-        .map(
-          (payment) => `
+        .map((payment) => {
+          const canSelectPending = payment.status === "신청" && canApprove;
+
+          return `
             <details class="payment-review-card">
               <summary>
                 <div class="payment-summary-main">
                   ${
-                    payment.status === "신청" && canApprove
+                    canSelectPending
                       ? `<input type="checkbox" class="payment-select" value="${payment.id}" aria-label="${escapeAttr(payment.store)} 선택" />`
                       : ""
                   }
                   <div>
-                    <strong>${payment.store}</strong>
-                    <span>${payment.vendor}</span>
+                    <strong>${safeText(payment.store)}</strong>
+                    <span>${safeText(payment.vendor)}</span>
                   </div>
                 </div>
                 <div class="payment-summary-meta">
-                  <span>${payment.payment_item || "-"}</span>
+                  <span>${safeText(payment.payment_item)}</span>
                   <strong>${formatKRW(payment.net_amount || payment.amount)}</strong>
-                  <span class="badge ${statusClass(payment.status)}">${payment.status}</span>
+                  <span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span>
                 </div>
               </summary>
               <div class="payment-detail-grid">
-                <div><span>입금은행</span><strong>${payment.vendor_bank || "-"}</strong></div>
-                <div><span>입금계좌</span><strong>${payment.vendor_account_number || "-"}</strong></div>
-                <div><span>예금주</span><strong>${payment.vendor_account_holder || "-"}</strong></div>
+                <div><span>입금은행</span><strong>${safeText(payment.vendor_bank)}</strong></div>
+                <div><span>입금계좌</span><strong>${safeText(payment.vendor_account_number)}</strong></div>
+                <div><span>예금주</span><strong>${safeText(payment.vendor_account_holder)}</strong></div>
                 <div><span>견적 총액</span><strong>${formatKRW(payment.estimate_total || payment.amount)}</strong></div>
-                <div><span>결제 방식</span><strong>${payment.payment_type || "일시 지급"}</strong></div>
+                <div><span>결제 방식</span><strong>${safeText(payment.payment_type, "일시 지급")}</strong></div>
                 <div><span>이번 신청액</span><strong>${formatKRW(payment.amount)}</strong></div>
-                <div><span>지급 유형</span><strong>${payment.tax_type || "일반 송금"}</strong></div>
+                <div><span>지급 유형</span><strong>${safeText(payment.tax_type, "일반 송금")}</strong></div>
                 <div><span>원천징수</span><strong>${formatKRW(payment.withholding_amount || 0)}</strong></div>
                 <div><span>실지급액</span><strong>${formatKRW(payment.net_amount || payment.amount)}</strong></div>
                 <div><span>첨부 자료</span><strong>${paymentAttachmentSummary(payment)}</strong></div>
-                <div><span>견적서 반영</span><strong>${payment.estimate_group_mode || "매장별 항목 합산"}</strong></div>
-                <div><span>신청일</span><strong>${payment.requested_at}</strong></div>
+                <div><span>견적서 반영</span><strong>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</strong></div>
+                <div><span>신청일</span><strong>${safeText(payment.requested_at)}</strong></div>
               </div>
               <div class="payment-detail-actions">
                 ${
-                  payment.status === "신청" && canApprove
-                    ? `<button class="primary" data-payment-id="${payment.id}" data-payment-status="승인">승인</button>
-                       <button data-payment-id="${payment.id}" data-payment-status="반려">반려</button>`
-                    : payment.status === "신청"
-                      ? `<span class="muted">승인 대기</span>`
+                  payment.status === "신청"
+                    ? `<button data-payment-edit="${escapeAttr(payment.id)}">수정</button>
+                       <button data-payment-id="${escapeAttr(payment.id)}" data-payment-status="반려">신청 취소</button>
+                       ${canApprove ? `<button class="primary" data-payment-id="${escapeAttr(payment.id)}" data-payment-status="승인">승인</button>` : ""}`
                       : `<span class="muted">처리 완료</span>`
                 }
               </div>
-            </details>`
-        )
+            </details>`;
+        })
         .join("")}
     </div>
   `;
 }
 
-function bankTransferRows(data) {
-  return bankTransferRecords(data).map(
+function bankTransferRows(records, selectable = false) {
+  if (!records.length) {
+    return `<tr><td colspan="${selectable ? 12 : 11}">조회된 이체 대상이 없습니다.</td></tr>`;
+  }
+
+  return records.map(
     (record) => `
       <tr>
-        <td>${record.payment.store}</td>
-        <td>${record.payment.vendor}</td>
-        <td>${record.bank || "-"}</td>
-        <td>${record.account || "-"}</td>
-        <td>${record.holder || "-"}</td>
+        ${selectable ? `<td><input type="checkbox" class="transfer-select" value="${escapeAttr(record.payment.id)}" ${record.ready ? "" : "disabled"} aria-label="${escapeAttr(record.payment.store)} 이체대상 선택" /></td>` : ""}
+        <td>${safeText(record.payment.requested_at)}</td>
+        <td>${safeText(record.payment.store)}</td>
+        <td>${safeText(record.payment.vendor)}</td>
+        <td>${safeText(record.payment.payment_item)}</td>
+        <td>${safeText(record.bank)}</td>
+        <td>${safeText(record.account)}</td>
+        <td>${safeText(record.holder)}</td>
         <td class="money">${formatKRW(record.amount)}</td>
-        <td>${record.payment.tax_type || "일반 송금"}</td>
-        <td><span class="badge ${record.ready ? "green" : "red"}">${record.ready ? "다운로드 가능" : "계좌정보 확인"}</span></td>
+        <td>${safeText(compactDateTime(record.payment.exported_at))}</td>
+        <td>${safeText(compactDateTime(record.payment.transferred_at))}</td>
+        <td><span class="badge ${transferStatusClass(record)}">${transferStatusLabel(record)}</span></td>
       </tr>`
-  );
+  ).join("");
 }
 
 function quoteForStore(data, storeName) {
@@ -1241,12 +1659,12 @@ function storeManagementRows(data, filter = "진행중") {
 
     return `
       <tr>
-        <td>${storeName}</td>
-        <td><span class="badge ${statusClass(status)}">${status}</span></td>
+        <td>${safeText(storeName)}</td>
+        <td><span class="badge ${statusClass(status)}">${safeText(status)}</span></td>
         <td class="money">${formatKRW(amounts.directCost)}</td>
         <td class="money">${formatKRW(amounts.fixtureCost)}</td>
         <td class="money">${formatKRW(amounts.costTotal)}</td>
-        <td><input class="inline-input" data-margin-rate="${escapeAttr(storeName)}" inputmode="decimal" value="${marginRate}" /></td>
+        <td><input class="inline-input" data-margin-rate="${escapeAttr(storeName)}" inputmode="decimal" value="${escapeAttr(marginRate)}" /></td>
         <td class="money">${formatKRW(amounts.supplyAmount)}</td>
         <td class="money">${formatKRW(amounts.vatAmount)}</td>
         <td class="money">${formatKRW(amounts.totalAmount)}</td>
@@ -1266,12 +1684,12 @@ function storeRows(data) {
   return data.stores.map(
     (store) => `
       <tr>
-        <td>${store.region || "-"}</td>
-        <td>${store.name}</td>
+        <td>${safeText(store.region)}</td>
+        <td>${safeText(store.name)}</td>
         <td>${store.fixture_count || 0}</td>
-        <td>${store.area}평</td>
+        <td>${safeText(store.area)}평</td>
         <td class="money">${formatKRW(store.budget)}</td>
-        <td><span class="badge ${statusClass(store.status)}">${store.status}</span></td>
+        <td><span class="badge ${statusClass(store.status)}">${safeText(store.status)}</span></td>
         <td><span class="badge ${store.document_required ? "blue" : "gray"}">${store.document_required ? "생성 대상" : "출력 완료"}</span></td>
       </tr>`
   );
@@ -1279,7 +1697,7 @@ function storeRows(data) {
 
 function fileLinks(files, fallbackText = "") {
   const parsedFiles = Array.isArray(files) ? files : [];
-  if (!parsedFiles.length) return fallbackText || "-";
+  if (!parsedFiles.length) return fallbackText ? escapeAttr(fallbackText) : "-";
 
   return parsedFiles
     .map((file) =>
@@ -1303,23 +1721,88 @@ function paymentAttachmentSummary(payment) {
   return `견적서 ${estimateCount}개 / 세금계산서 ${taxInvoiceCount}개`;
 }
 
+function fileSizeLabel(size) {
+  const value = Number(size || 0);
+  if (!value) return "-";
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)}MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)}KB`;
+  return `${value}B`;
+}
+
+function attachmentRows(data) {
+  const rows = [];
+  const addFiles = (source, owner, category, files, date = "") => {
+    (Array.isArray(files) ? files : []).forEach((file) => {
+      rows.push({
+        source,
+        owner,
+        category,
+        name: file.name || "파일",
+        size: fileSizeLabel(file.size),
+        date,
+        url: file.url || ""
+      });
+    });
+  };
+
+  data.payments.forEach((payment) => {
+    const files = payment.attachment_files || {};
+    const owner = `${payment.store || "-"} / ${payment.vendor || "-"}`;
+    const date = payment.requested_at || "";
+    addFiles("결제 신청", owner, "견적서", files.estimate_files, date);
+    addFiles("결제 신청", owner, "세금계산서", files.tax_invoice_files, date);
+    addFiles("결제 신청", owner, "주민등록증", files.id_card_files, date);
+  });
+
+  data.vendors.forEach((vendor) => {
+    const files = vendor.attachment_files || {};
+    addFiles("업체 계좌", vendor.name || "-", "사업자등록증", files.business_license_files);
+    addFiles("업체 계좌", vendor.name || "-", "통장사본", files.bankbook_files);
+  });
+
+  data.constructionStarts.forEach((item) => {
+    const date = String(item.created_at || "").slice(0, 10);
+    addFiles("공사 시작", item.store_name || "-", "도면", item.drawing_files, date);
+    addFiles("공사 시작", item.store_name || "-", "기초 사진", item.base_photo_files, date);
+  });
+
+  if (!rows.length) {
+    return [
+      `<tr><td colspan="7">아직 업로드된 첨부 파일이 없습니다.</td></tr>`
+    ];
+  }
+
+  return rows.map(
+    (row) => `
+      <tr>
+        <td>${safeText(row.source)}</td>
+        <td>${safeText(row.owner)}</td>
+        <td>${safeText(row.category)}</td>
+        <td>${row.url ? `<a href="${escapeAttr(row.url)}" target="_blank" rel="noreferrer">${escapeAttr(row.name)}</a>` : escapeAttr(row.name)}</td>
+        <td>${safeText(row.size)}</td>
+        <td>${safeText(row.date)}</td>
+        <td>${row.url ? `<a class="file-open-link" href="${escapeAttr(row.url)}" target="_blank" rel="noreferrer">열기</a>` : "-"}</td>
+      </tr>`
+  );
+}
+
 function constructionStartRows(data) {
   return data.constructionStarts.map(
     (item) => `
       <tr>
-        <td>${item.store_name}</td>
-        <td>${item.area}평</td>
-        <td>${item.wall_upper_count ?? item.wall_cabinet_count ?? 0}</td>
-        <td>${item.wall_lower_count ?? 0}</td>
-        <td>${item.display_fixture_count ?? item.fixture_count ?? 0}</td>
-        <td>${item.counter_drawer_1200_count ?? item.counter_count ?? 0}</td>
-        <td>${item.counter_shelf_1800_count ?? 0}</td>
-        <td>${item.counter_shelf_1600_count ?? 0}</td>
-        <td>${item.table_count || 0}</td>
-        <td>${item.sign_count || 0}</td>
+        <td>${safeText(item.store_name)}</td>
+        <td>${safeText(item.area)}평</td>
+        <td>${safeText(item.wall_upper_count ?? item.wall_cabinet_count ?? 0)}</td>
+        <td>${safeText(item.wall_lower_count ?? 0)}</td>
+        <td>${safeText(item.display_fixture_count ?? item.fixture_count ?? 0)}</td>
+        <td>${safeText(item.counter_drawer_1200_count ?? item.counter_count ?? 0)}</td>
+        <td>${safeText(item.counter_shelf_1800_count ?? 0)}</td>
+        <td>${safeText(item.counter_shelf_1600_count ?? 0)}</td>
+        <td>${safeText(item.table_count || 0)}</td>
+        <td>${safeText(item.sign_count || 0)}</td>
         <td>${fileLinks(item.drawing_files, item.drawing_note)}</td>
         <td>${fileLinks(item.base_photo_files, item.base_photo_note)}</td>
-        <td>${item.special_notes || "-"}</td>
+        <td>${safeText(item.special_notes)}</td>
       </tr>`
   );
 }
@@ -1333,14 +1816,14 @@ function vendorRows(data) {
 
       return `
         <tr>
-          <td>${vendor.name}</td>
-          <td>${vendor.category}</td>
-          <td>${vendor.bank}</td>
-          <td>${vendor.account_number || "-"}</td>
-          <td>${vendor.account_holder || "-"}</td>
+          <td>${safeText(vendor.name)}</td>
+          <td>${safeText(vendor.category)}</td>
+          <td>${safeText(vendor.bank)}</td>
+          <td>${safeText(vendor.account_number)}</td>
+          <td>${safeText(vendor.account_holder)}</td>
           <td>사업자 ${licenseCount}개 / 통장 ${bankbookCount}개</td>
-          <td><span class="badge ${statusClass(vendor.risk)}">${vendor.risk}</span></td>
-          <td><button data-vendor-edit="${vendor.id}">수정</button></td>
+          <td><span class="badge ${statusClass(vendor.risk)}">${safeText(vendor.risk)}</span></td>
+          <td><button data-vendor-edit="${escapeAttr(vendor.id)}">수정</button></td>
         </tr>`;
     }
   );
@@ -1384,52 +1867,62 @@ function paymentItemSuggestions(data) {
     .join("");
 }
 
+function selectAttr(value, currentValue) {
+  return value === currentValue ? "selected" : "";
+}
+
 function paymentForm() {
+  const editingPayment = currentData.payments.find((payment) => payment.id === editingPaymentId && payment.status === "신청");
+  const isEditing = Boolean(editingPayment);
+  const valueFor = (field, fallbackValue = "") => escapeAttr(editingPayment?.[field] ?? fallbackValue);
+
   return `
     <article class="panel form-panel">
       <div class="panel-head">
-        <h2>결제 신청 입력</h2>
+        <h2>${isEditing ? "결제 신청 수정" : "결제 신청 입력"}</h2>
+        ${isEditing ? `<button data-payment-edit-cancel>수정 취소</button>` : ""}
       </div>
-      <div class="notice">등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다.</div>
+      <div class="notice">${isEditing ? "승인 전 신청 건만 수정할 수 있습니다. 기존 첨부파일은 유지되고 새 파일을 추가할 수 있습니다." : "등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다."}</div>
       <form id="payment-form">
+        <input type="hidden" name="payment_id" value="${isEditing ? editingPayment.id : ""}" />
         <label>매장
-          <input name="store" list="store-suggestions" placeholder="직접입력 또는 매장명 검색" autocomplete="off" />
+          <input name="store" list="store-suggestions" value="${valueFor("store")}" placeholder="직접입력 또는 매장명 검색" autocomplete="off" />
           <datalist id="store-suggestions">
             <option value="직접입력">직접입력</option>
             ${storeSuggestions(currentData)}
           </datalist>
         </label>
         <label>협력업체
-          <input name="vendor" list="vendor-suggestions" placeholder="직접입력 또는 업체명 검색" autocomplete="off" />
+          <input name="vendor" list="vendor-suggestions" value="${valueFor("vendor")}" placeholder="직접입력 또는 업체명 검색" autocomplete="off" />
           <datalist id="vendor-suggestions">
             <option value="직접입력">직접입력</option>
             ${vendorSuggestions(currentData)}
           </datalist>
         </label>
-        <label>입금은행<input name="vendor_bank" placeholder="업체 선택 시 자동 입력, 변경 가능" autocomplete="off" /></label>
-        <label>입금계좌<input name="vendor_account_number" placeholder="예: 110-000-000000" autocomplete="off" /></label>
-        <label>예금주<input name="vendor_account_holder" placeholder="예: 도원인테리어" autocomplete="off" /></label>
+        <label>입금은행<input name="vendor_bank" value="${valueFor("vendor_bank")}" placeholder="업체 선택 시 자동 입력, 변경 가능" autocomplete="off" /></label>
+        <label>입금계좌<input name="vendor_account_number" value="${valueFor("vendor_account_number")}" placeholder="예: 110-000-000000" autocomplete="off" /></label>
+        <label>예금주<input name="vendor_account_holder" value="${valueFor("vendor_account_holder")}" placeholder="예: 도원인테리어" autocomplete="off" /></label>
         <label>결제 항목
-          <input name="payment_item" list="payment-item-suggestions" placeholder="직접입력 또는 공사항목 검색" autocomplete="off" />
+          <input name="payment_item" list="payment-item-suggestions" value="${valueFor("payment_item")}" placeholder="직접입력 또는 공사항목 검색" autocomplete="off" />
           <datalist id="payment-item-suggestions">
             <option value="직접입력">직접입력</option>
             ${paymentItemSuggestions(currentData)}
           </datalist>
         </label>
-        <label>견적 총액, 부가세 포함<input name="estimate_total" inputmode="numeric" placeholder="예: 10000000" autocomplete="off" /></label>
+        <label>견적 총액, 부가세 포함<input name="estimate_total" value="${valueFor("estimate_total")}" inputmode="numeric" placeholder="예: 10000000" autocomplete="off" /></label>
         <label>결제 방식
           <select name="payment_type">
-            <option value="일시 지급">일시 지급</option>
-            <option value="선금 50%">선금 50%</option>
-            <option value="잔금 50%">잔금 50%</option>
-            <option value="직접 입력">직접 입력</option>
+            <option value="일시 지급" ${selectAttr("일시 지급", editingPayment?.payment_type || "일시 지급")}>일시 지급</option>
+            <option value="선금 50%" ${selectAttr("선금 50%", editingPayment?.payment_type)}>선금 50%</option>
+            <option value="잔금 50%" ${selectAttr("잔금 50%", editingPayment?.payment_type)}>잔금 50%</option>
+            <option value="직접 입력" ${selectAttr("직접 입력", editingPayment?.payment_type)}>직접 입력</option>
           </select>
         </label>
-        <label>이번 신청 금액<input name="amount" inputmode="numeric" placeholder="예: 5000000" autocomplete="off" /></label>
+        <label>이번 신청 금액<input name="amount" value="${valueFor("amount")}" inputmode="numeric" placeholder="예: 5000000" autocomplete="off" /></label>
         <label>지급 유형
           <select name="tax_type">
-            <option value="일반 송금">일반 송금</option>
-            <option value="사업소득 3.3%">사업소득 3.3%</option>
+            <option value="일반 송금" ${selectAttr("일반 송금", editingPayment?.tax_type || "일반 송금")}>일반 송금</option>
+            <option value="사업소득 3.3%" ${selectAttr("사업소득 3.3%", editingPayment?.tax_type)}>사업소득 3.3%</option>
           </select>
         </label>
         <div class="calc-box">
@@ -1439,9 +1932,9 @@ function paymentForm() {
         <label>견적서 첨부<input name="estimate_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>세금계산서 첨부<input name="tax_invoice_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>주민등록증 첨부<input name="id_card_files" type="file" accept="image/*,application/pdf" multiple /></label>
-        <label>메모<input name="memo" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
+        <label>메모<input name="memo" value="${valueFor("memo")}" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
-        <button class="primary wide" type="submit">검토 요청 생성</button>
+        <button class="primary wide" type="submit">${isEditing ? "수정 저장" : "검토 요청 생성"}</button>
       </form>
     </article>
   `;
@@ -1573,11 +2066,6 @@ function dashboardView(data) {
 function paymentView(data) {
   const canDownloadTransfer = visibleNav().includes("은행 이체 파일 생성");
   const pendingCount = data.payments.filter((payment) => payment.status === "신청").length;
-  const approvedCount = approvedPayments(data).length;
-  const readyTransferCount = bankTransferRecords(data).filter((record) => record.ready).length;
-  const readyTransferAmount = bankTransferRecords(data)
-    .filter((record) => record.ready)
-    .reduce((sum, record) => sum + record.amount, 0);
 
   return `
     <section class="grid two">
@@ -1587,7 +2075,7 @@ function paymentView(data) {
           <h2>결제 신청 검토</h2>
           <div class="row-actions">
             <button>승인 대기 ${pendingCount}건</button>
-            ${canDownloadTransfer ? `<button data-bank-transfer-download>이체 파일 ${readyTransferCount}건</button>` : ""}
+            ${canDownloadTransfer ? `<button data-view-link="은행 이체 파일 생성">은행 이체 전표</button>` : ""}
           </div>
         </div>
         ${
@@ -1598,39 +2086,23 @@ function paymentView(data) {
                   승인대기 전체 선택
                 </label>
                 <button class="primary" data-approve-selected-payments>선택 승인</button>
-                <button data-bank-transfer-download>승인건 엑셀 다운로드</button>
+                <button data-view-link="은행 이체 파일 생성">은행 이체 전표로 이동</button>
               </div>`
             : ""
         }
         ${paymentReviewCards(data, canDownloadTransfer)}
       </article>
     </section>
-    ${
-      canDownloadTransfer
-        ? `<section class="panel transfer-download-panel">
-            <div>
-              <h2>은행 이체 엑셀 다운로드</h2>
-              <p>승인된 결제건 중 계좌정보가 있는 건만 은행 대량이체 파일로 내려받습니다.</p>
-            </div>
-            <div class="transfer-summary">
-              <span>승인 ${approvedCount}건</span>
-              <span>다운로드 가능 ${readyTransferCount}건</span>
-              <strong>${formatKRW(readyTransferAmount)}</strong>
-            </div>
-            <div class="row-actions">
-              <button class="primary" data-bank-transfer-download>엑셀 다운로드</button>
-              <button data-view-link="은행 이체 파일 생성">상세 보기</button>
-            </div>
-          </section>`
-        : ""
-    }
   `;
 }
 
 function bankTransferView(data) {
   const allRecords = bankTransferRecords(data);
   const records = bankTransferRecords(data, transferDateFilter);
+  const completedTransferCount = approvedPayments(data).filter((payment) => isTransferCompleted(payment)).length;
   const readyCount = records.filter((record) => record.ready).length;
+  const missingCount = records.length - readyCount;
+  const exportedCount = records.filter((record) => paymentTransferStatus(record.payment) === "파일생성").length;
   const totalAmount = records
     .filter((record) => record.ready)
     .reduce((sum, record) => sum + record.amount, 0);
@@ -1640,49 +2112,114 @@ function bankTransferView(data) {
       : "전체 기간";
 
   return `
-    <section class="grid two">
-      <article class="panel">
-        <div class="panel-head">
-          <h2>날짜별 지급 내역 조회</h2>
-          <button>${periodText}</button>
+    <section class="transfer-workspace">
+      <article class="panel transfer-panel">
+        <div class="transfer-title-row">
+          <div>
+            <h2>이체자료조회</h2>
+          </div>
+          <div class="transfer-stepper" aria-label="이체 처리 단계">
+            <span>STEP1 승인검토</span>
+            <span class="active">STEP2 이체자료조회</span>
+            <span>STEP3 이체파일생성</span>
+            <span>STEP4 송금완료확인</span>
+          </div>
         </div>
-        <div class="notice">승인된 결제건을 날짜별로 조회합니다. 현재 날짜 기준은 결제 신청일입니다.</div>
-        <div class="date-filter">
+
+        <div class="transfer-filter-bar">
           <label>시작일<input type="date" data-transfer-start value="${escapeAttr(transferDateFilter.startDate)}" /></label>
           <label>종료일<input type="date" data-transfer-end value="${escapeAttr(transferDateFilter.endDate)}" /></label>
+          <label>검색어<input data-transfer-keyword value="${escapeAttr(transferDateFilter.keyword)}" placeholder="매장, 업체, 항목, 계좌" autocomplete="off" /></label>
+          <label>계좌상태
+            <select data-transfer-ready-status>
+              <option value="all" ${selectAttr("all", transferDateFilter.readyStatus)}>전체</option>
+              <option value="ready" ${selectAttr("ready", transferDateFilter.readyStatus)}>계좌확인</option>
+              <option value="missing" ${selectAttr("missing", transferDateFilter.readyStatus)}>확인필요</option>
+            </select>
+          </label>
           <button class="primary" data-transfer-filter>조회</button>
-          <button data-transfer-clear>전체 보기</button>
-          <button data-bank-transfer-download="range">조회 결과 엑셀 다운로드</button>
+          <button data-transfer-clear>전체</button>
         </div>
-        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "입금액", "지급 유형", "상태"], bankTransferRows({ ...data, payments: records.map((record) => record.payment) }))}
+
+        <div class="transfer-status-strip">
+          <div><span>조회기간</span><strong>${periodText}</strong></div>
+          <div><span>미송금 승인</span><strong>${allRecords.length}건</strong></div>
+          <div><span>조회 결과</span><strong>${records.length}건</strong></div>
+          <div><span>계좌 확인</span><strong>${readyCount}건</strong></div>
+          <div><span>확인 필요</span><strong>${missingCount}건</strong></div>
+          <div><span>파일 생성</span><strong>${exportedCount}건</strong></div>
+          <div><span>송금완료 제외</span><strong>${completedTransferCount}건</strong></div>
+        </div>
+
+        <div class="bulk-actions transfer-actions-row">
+          <label class="check-control">
+            <input type="checkbox" data-select-transfer-payments />
+            조회 결과 전체 선택
+          </label>
+          <button class="primary" data-bank-transfer-download>선택 이체 파일 다운로드</button>
+          <button data-bank-transfer-download="range">조회 결과 전체 다운로드</button>
+          <button data-transfer-complete-selected>선택 송금완료 처리</button>
+        </div>
+
+        <div class="table-wrap transfer-table-wrap">
+          <table class="transfer-table">
+            <thead>
+              <tr>
+                <th>선택</th>
+                <th>신청일</th>
+                <th>매장</th>
+                <th>업체</th>
+                <th>항목</th>
+                <th>은행</th>
+                <th>계좌번호</th>
+                <th>예금주</th>
+                <th>입금액</th>
+                <th>파일생성일</th>
+                <th>송금일</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>${bankTransferRows(records, true)}</tbody>
+            <tfoot>
+              <tr>
+                <td colspan="8">합계</td>
+                <td class="money">${formatKRW(totalAmount)}</td>
+                <td colspan="3">${readyCount}건 가능</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </article>
+    </section>
+  `;
+}
+
+function attachmentView(data) {
+  const paymentFileCount = data.payments.reduce((sum, payment) => {
+    const files = payment.attachment_files || {};
+    return sum + (files.estimate_files || []).length + (files.tax_invoice_files || []).length + (files.id_card_files || []).length;
+  }, 0);
+  const vendorFileCount = data.vendors.reduce((sum, vendor) => {
+    const files = vendor.attachment_files || {};
+    return sum + (files.business_license_files || []).length + (files.bankbook_files || []).length;
+  }, 0);
+  const constructionFileCount = data.constructionStarts.reduce((sum, item) => {
+    return sum + (item.drawing_files || []).length + (item.base_photo_files || []).length;
+  }, 0);
+
+  return `
+    <section class="grid">
       <article class="panel">
         <div class="panel-head">
-          <h2>조회 요약</h2>
-          <button>${readyCount}건 가능</button>
+          <h2>첨부 파일 보기</h2>
+          <div class="row-actions">
+            <button>결제 ${paymentFileCount}개</button>
+            <button>업체 ${vendorFileCount}개</button>
+            <button>공사 ${constructionFileCount}개</button>
+          </div>
         </div>
-        <section class="kpis compact-kpis">
-          <article class="kpi">
-            <span>전체 승인 건</span>
-            <strong>${allRecords.length}건</strong>
-            <small>전체 기간 승인 건</small>
-          </article>
-          <article class="kpi">
-            <span>조회된 건</span>
-            <strong>${records.length}건</strong>
-            <small>${periodText}</small>
-          </article>
-          <article class="kpi">
-            <span>계좌 확인 완료</span>
-            <strong>${readyCount}건</strong>
-            <small>은행/계좌/예금주 확인 완료</small>
-          </article>
-          <article class="kpi">
-            <span>총 이체액</span>
-            <strong>${formatKRW(totalAmount)}</strong>
-            <small>실지급액 기준</small>
-          </article>
-        </section>
+        <div class="notice">결제 신청 증빙, 업체 계좌 서류, 공사 시작 도면/기초사진을 한 화면에서 확인합니다. 파일명을 누르면 새 창으로 열립니다.</div>
+        ${table(["구분", "대상", "파일 종류", "파일명", "크기", "등록일", "보기"], attachmentRows(data))}
       </article>
     </section>
   `;
@@ -1743,7 +2280,7 @@ function furnitureAllocationRows(data) {
 
     return `
       <tr>
-        <td>${item.store_name}</td>
+        <td>${safeText(item.store_name)}</td>
         <td>${upperCount}</td>
         <td>${lowerCount}</td>
         <td>${displayCount}</td>
@@ -1827,7 +2364,7 @@ function quoteDocumentRows(lines) {
     (line, index) => `
       <tr>
         <td>${index + 1}</td>
-        <td>${line.name}</td>
+        <td>${safeText(line.name)}</td>
         <td class="money">${formatKRW(line.cost)}</td>
         <td class="money">${formatKRW(line.supply)}</td>
         <td class="money">${formatKRW(line.vat)}</td>
@@ -1846,16 +2383,17 @@ function documentView(data, type) {
   const lines = documentLineItems(data, storeName, marginRate);
   const start = constructionStartForStore(data, storeName);
   const isContract = type === "계약서 생성";
+  const safeStoreName = safeText(storeName);
 
   if (!storeName) {
-    return `<section class="panel empty-panel"><h2>${type}</h2><p>문서를 만들 매장 데이터가 아직 없습니다.</p></section>`;
+    return `<section class="panel empty-panel"><h2>${safeText(type)}</h2><p>문서를 만들 매장 데이터가 아직 없습니다.</p></section>`;
   }
 
   return `
     <section class="grid">
       <article class="panel">
         <div class="panel-head">
-          <h2>${type}</h2>
+          <h2>${safeText(type)}</h2>
           <div class="row-actions">
             <select data-document-store-select>${documentStoreOptions(data)}</select>
             <button data-print-document>인쇄</button>
@@ -1869,15 +2407,15 @@ function documentView(data, type) {
             <p>${today()}</p>
           </div>
           <div class="document-meta">
-            <div><span>매장명</span><strong>${storeName}</strong></div>
-            <div><span>평수</span><strong>${start.area ? `${start.area}평` : "-"}</strong></div>
-            <div><span>상태</span><strong>${quote.quote_status || "정산중"}</strong></div>
-            <div><span>마진율</span><strong>${marginRate}%</strong></div>
+            <div><span>매장명</span><strong>${safeStoreName}</strong></div>
+            <div><span>평수</span><strong>${start.area ? `${safeText(start.area)}평` : "-"}</strong></div>
+            <div><span>상태</span><strong>${safeText(quote.quote_status, "정산중")}</strong></div>
+            <div><span>마진율</span><strong>${safeText(marginRate)}%</strong></div>
           </div>
           ${
             isContract
               ? `<div class="contract-body">
-                  <p>본 계약은 ${storeName} 공사와 관련하여 승인된 결제 원가와 진열장 원가 배분 내역을 기준으로 산정한 최종 공사금액을 계약 기준으로 한다.</p>
+                  <p>본 계약은 ${safeStoreName} 공사와 관련하여 승인된 결제 원가와 진열장 원가 배분 내역을 기준으로 산정한 최종 공사금액을 계약 기준으로 한다.</p>
                   <p>최종 계약금액은 부가세 포함 ${formatKRW(amounts.totalAmount)}이며, 세부 산출 내역은 아래 견적 기준표를 따른다.</p>
                 </div>`
               : ""
@@ -1903,9 +2441,9 @@ function userRoleRows(data) {
   return data.userRoles.map(
     (user) => `
       <tr>
-        <td>${user.email}</td>
-        <td><span class="badge ${user.role === "admin" ? "green" : "blue"}">${roleLabels[user.role] || user.role}</span></td>
-        <td>${user.created_at ? String(user.created_at).slice(0, 10) : "-"}</td>
+        <td>${safeText(user.email)}</td>
+        <td><span class="badge ${user.role === "admin" ? "green" : "blue"}">${safeText(roleLabels[user.role] || user.role)}</span></td>
+        <td>${safeText(user.created_at ? String(user.created_at).slice(0, 10) : "-")}</td>
       </tr>`
   );
 }
@@ -1914,8 +2452,8 @@ function roleMenuRows() {
   return Object.entries(roleMenus).map(
     ([role, menus]) => `
       <tr>
-        <td><strong>${role}</strong></td>
-        <td>${menus.map((menu) => `<span class="menu-chip">${menu}</span>`).join("")}</td>
+        <td><strong>${safeText(role)}</strong></td>
+        <td>${menus.map((menu) => `<span class="menu-chip">${safeText(menu)}</span>`).join("")}</td>
         <td>${menus.length}개</td>
       </tr>`
   );
@@ -1946,10 +2484,10 @@ function placeholderView(view) {
   const checks = viewDescriptions[view] || ["기능 범위 정의", "입력 항목 확정", "데이터 연결"];
   return `
     <section class="panel empty-panel">
-      <h2>${view}</h2>
+      <h2>${safeText(view)}</h2>
       <p>이 메뉴는 다음 단계에서 구현할 기능입니다. 지금은 확인해야 할 항목을 먼저 고정해둔 상태입니다.</p>
       <div class="check-list">
-        ${checks.map((item) => `<span>${item}</span>`).join("")}
+        ${checks.map((item) => `<span>${safeText(item)}</span>`).join("")}
       </div>
     </section>
   `;
@@ -1960,6 +2498,7 @@ function activeContent(data) {
   if (activeView === "공사 시작 접수") return constructionStartView(data);
   if (activeView === "결제 신청") return paymentView(data);
   if (activeView === "결제 계좌 관리" || activeView === "업체/계좌 관리") return vendorsView(data);
+  if (activeView === "첨부 파일 보기") return attachmentView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
   if (activeView === "진열장 원가 배분") return furnitureAllocationView(data);
   if (activeView === "견적서 생성") return documentView(data, "견적서 생성");
@@ -1976,8 +2515,8 @@ function visibleNav() {
 function roleControl() {
   return `
     <div class="session-box">
-      <span>${currentUser?.email || ""}</span>
-      <strong>${activeRole}</strong>
+      <span>${safeText(currentUser?.email, "")}</span>
+      <strong>${safeText(activeRole)}</strong>
       <button data-sign-out>로그아웃</button>
     </div>
   `;
@@ -2035,8 +2574,7 @@ async function handleLogin(event) {
   currentUser = data.user;
   activeRole = await loadUserRole(currentUser);
   activeView = visibleNav()[0];
-  currentData = await loadData();
-  render();
+  await refreshDataAndRender();
 }
 
 async function handleSignup() {
@@ -2100,7 +2638,7 @@ async function signOut() {
 
 function render(notice = "") {
   const app = document.querySelector("#app");
-  app.className = "";
+  app.className = activeView === "은행 이체 파일 생성" ? "transfer-app" : "";
   if (!visibleNav().includes(activeView)) {
     activeView = visibleNav()[0];
   }
@@ -2121,11 +2659,11 @@ function render(notice = "") {
           .join("")}
       </nav>
     </aside>
-    <main class="shell">
+    <main class="shell ${activeView === "은행 이체 파일 생성" ? "transfer-shell" : ""}">
       <header class="topbar">
         <div>
           <p>${activeRole}</p>
-          <h1>${activeView}</h1>
+          <h1>${safeText(activeView)}</h1>
         </div>
         <div class="actions">
           ${roleControl()}
@@ -2143,6 +2681,14 @@ function render(notice = "") {
       </header>
 
       ${notice ? `<div class="toast">${notice}</div>` : ""}
+      ${
+        dataLoadWarnings.length
+          ? `<div class="data-alert">
+              <strong>일부 데이터 확인 필요</strong>
+              <span>${dataLoadWarnings.map((item) => escapeAttr(item)).join(" / ")}</span>
+            </div>`
+          : ""
+      }
       ${activeContent(currentData)}
     </main>
   `;
@@ -2201,31 +2747,46 @@ function render(notice = "") {
   if (constructionStartFormElement) constructionStartFormElement.addEventListener("submit", submitConstructionStart);
 
   document.querySelector("[data-transfer-filter]")?.addEventListener("click", (event) => {
-    const panel = event.currentTarget.closest(".panel") || document;
+    const panel = event.currentTarget.closest(".transfer-panel") || event.currentTarget.closest(".panel") || document;
     transferDateFilter = {
       startDate: panel.querySelector("[data-transfer-start]")?.value || "",
-      endDate: panel.querySelector("[data-transfer-end]")?.value || ""
+      endDate: panel.querySelector("[data-transfer-end]")?.value || "",
+      keyword: panel.querySelector("[data-transfer-keyword]")?.value || "",
+      readyStatus: panel.querySelector("[data-transfer-ready-status]")?.value || "all"
     };
     render();
   });
 
   document.querySelector("[data-transfer-clear]")?.addEventListener("click", () => {
-    transferDateFilter = { startDate: "", endDate: "" };
+    transferDateFilter = { startDate: "", endDate: "", keyword: "", readyStatus: "all" };
     render();
   });
 
   document.querySelectorAll("[data-bank-transfer-download]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const useRange = button.dataset.bankTransferDownload === "range";
-      const panel = button.closest(".panel") || document;
-      downloadBankTransferFile(
+      const panel = button.closest(".transfer-panel") || button.closest(".panel") || document;
+      const selectedTransferIds = [...document.querySelectorAll(".transfer-select:checked:not(:disabled)")].map((checkbox) => checkbox.value);
+      const rangeDates = {
+        startDate: panel.querySelector("[data-transfer-start]")?.value || "",
+        endDate: panel.querySelector("[data-transfer-end]")?.value || "",
+        keyword: panel.querySelector("[data-transfer-keyword]")?.value || "",
+        readyStatus: panel.querySelector("[data-transfer-ready-status]")?.value || "all"
+      };
+      if (useRange && (!rangeDates.startDate || !rangeDates.endDate)) {
+        render("조회 결과 전체 다운로드는 시작일과 종료일을 모두 선택한 뒤 사용할 수 있습니다.");
+        return;
+      }
+      if (!useRange && !selectedTransferIds.length) {
+        render("이체 파일로 만들 결제건을 먼저 체크해 주세요. 전체 승인건 자동 다운로드는 막아두었습니다.");
+        return;
+      }
+      await downloadBankTransferFile(
         currentData,
-        useRange
-          ? {
-              startDate: panel.querySelector("[data-transfer-start]")?.value || "",
-              endDate: panel.querySelector("[data-transfer-end]")?.value || ""
-            }
-          : {}
+        {
+          ...(useRange ? rangeDates : {}),
+          ...(!useRange && selectedTransferIds.length ? { selectedIds: selectedTransferIds } : {})
+        }
       );
     });
   });
@@ -2238,6 +2799,21 @@ function render(notice = "") {
 
   document.querySelectorAll(".payment-select").forEach((checkbox) => {
     checkbox.addEventListener("click", (event) => event.stopPropagation());
+  });
+
+  document.querySelector("[data-select-transfer-payments]")?.addEventListener("change", (event) => {
+    document.querySelectorAll(".transfer-select:not(:disabled)").forEach((checkbox) => {
+      checkbox.checked = event.currentTarget.checked;
+    });
+  });
+
+  document.querySelectorAll(".transfer-select").forEach((checkbox) => {
+    checkbox.addEventListener("click", (event) => event.stopPropagation());
+  });
+
+  document.querySelector("[data-transfer-complete-selected]")?.addEventListener("click", () => {
+    const paymentIds = [...document.querySelectorAll(".transfer-select:checked:not(:disabled)")].map((checkbox) => checkbox.value);
+    markSelectedTransfersCompleted(paymentIds);
   });
 
   document.querySelector("[data-approve-selected-payments]")?.addEventListener("click", () => {
@@ -2275,9 +2851,24 @@ function render(notice = "") {
 
   document.querySelector("[data-print-document]")?.addEventListener("click", () => window.print());
 
+  document.querySelectorAll("[data-payment-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      editingPaymentId = Number(button.dataset.paymentEdit);
+      activeView = "결제 신청";
+      render("선택한 결제 신청을 수정 중입니다.");
+    });
+  });
+
+  document.querySelector("[data-payment-edit-cancel]")?.addEventListener("click", () => {
+    editingPaymentId = null;
+    render("수정 모드를 종료했습니다.");
+  });
+
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
     button.addEventListener("click", () => {
-      updatePaymentStatus(Number(button.dataset.paymentId), button.dataset.paymentStatus);
+      const status = button.dataset.paymentStatus;
+      if (status === "반려" && !window.confirm("이 결제 신청을 취소 처리할까요? 기록은 반려 상태로 남습니다.")) return;
+      updatePaymentStatus(Number(button.dataset.paymentId), status);
     });
   });
 }

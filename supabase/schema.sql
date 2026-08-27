@@ -17,7 +17,12 @@ create table if not exists public.payments (
   estimate_group_key text,
   memo text,
   status text not null check (status in ('승인', '신청', '반려')),
-  requested_at date not null default current_date
+  requested_at date not null default current_date,
+  transfer_batch_id text,
+  exported_at timestamp with time zone,
+  transferred_at timestamp with time zone,
+  transfer_status text not null default '미작성' check (transfer_status in ('미작성', '파일생성', '송금완료', '이체완료')),
+  transfer_memo text
 );
 
 create table if not exists public.stores (
@@ -301,7 +306,30 @@ create policy "authenticated update pending payments"
 on public.payments
 for update
 using (auth.role() = 'authenticated' and status = '신청')
-with check (auth.role() = 'authenticated' and status in ('승인', '반려'));
+with check (
+  auth.role() = 'authenticated'
+  and status in ('신청', '승인', '반려')
+  and amount > 0
+  and estimate_total > 0
+  and withholding_amount >= 0
+  and net_amount > 0
+  and length(trim(store)) > 0
+  and length(trim(vendor)) > 0
+  and length(trim(vendor_bank)) > 0
+  and length(trim(vendor_account_number)) > 0
+  and length(trim(vendor_account_holder)) > 0
+  and length(trim(payment_item)) > 0
+);
+
+create policy "authenticated update approved transfer status"
+on public.payments
+for update
+using (auth.role() = 'authenticated' and status = '승인')
+with check (
+  auth.role() = 'authenticated'
+  and status = '승인'
+  and transfer_status in ('미작성', '파일생성', '송금완료', '이체완료')
+);
 
 create policy authenticated_update_vendors
 on public.vendors
