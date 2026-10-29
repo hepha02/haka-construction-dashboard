@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { renderStartupLoading, withTimeout } from "./startup.js";
-import { readTable, updatePendingPayment } from "./data.js";
-import { isBusinessIncome, transferCompleted, filterPayments, matchesSearch, csvText, validateImportRows } from "./workflow.js";
+import { readTable, updatePendingPayment, changePendingStatus } from "./data.js";
+import { isBusinessIncome, isActivePayment, canEditPayment, canReviewPayment, canResubmitPayment, transferCompleted, filterPayments, matchesSearch, csvText, validateImportRows } from "./workflow.js";
 import { dashboard, costReport, costReportRows, incomeBadge, incomeReminder, importPanel } from "./workspace-views.js";
 
 const env = import.meta.env || {};
@@ -14,6 +14,11 @@ const LOCAL_PREVIEW_MODE =
   typeof window !== "undefined" &&
   ["localhost", "127.0.0.1"].includes(window.location?.hostname || "") &&
   new URLSearchParams(window.location?.search || "").has("preview");
+const previewActors = {
+  admin: { id: "00000000-0000-4000-8000-000000000003", email: "admin@example.invalid" },
+  staff: { id: "00000000-0000-4000-8000-000000000001", email: "site@example.invalid" },
+  other: { id: "00000000-0000-4000-8000-000000000002", email: "other@example.invalid" }
+};
 
 const supabase =
   !LOCAL_PREVIEW_MODE && SUPABASE_URL && SUPABASE_ANON_KEY
@@ -250,6 +255,26 @@ const previewData = {
   ]
 };
 
+if (LOCAL_PREVIEW_MODE) {
+  previewData.payments.forEach((payment) => {
+    const actor = payment.id === 103 ? null : previewActors.staff;
+    payment.created_by = actor?.id || null;
+    payment.created_by_email = actor?.email || null;
+    payment.row_version = 0;
+  });
+  previewData.payments.find((p) => p.id === 105).attachment_files = {
+    estimate_files: [{ name: "sample-estimate.pdf", size: 1024, url: "#" }],
+    tax_invoice_files: [{ name: "sample-tax-invoice.pdf", size: 1024, url: "#" }]
+  };
+  for (const [id, actor, store, status] of [
+    [106, previewActors.other, "부산 센텀", "신청"],
+    [107, previewActors.admin, "대전 둔산", "신청"],
+    [108, previewActors.staff, "제주 노형", "반려"]
+  ]) previewData.payments.push({ ...structuredClone(previewData.payments.find((p) => p.id === 105)), id, store, status, amount: 700000, net_amount: 700000, estimate_total: 1400000, created_by: actor.id, created_by_email: actor.email, rejection_reason: status === "반려" ? "품목과 증빙을 다시 확인해 주세요." : null });
+  previewData.paymentEvents = [];
+  previewData.lifecycleReady = true;
+}
+
 const furnitureCostItems = [
   { group: "벽장", name: "상부장", baseUnit: 115600, allocationUnit: 57100, quantity: 40, madeAmount: 1260000 },
   { group: "벽장", name: "하부장", baseUnit: 167500, allocationUnit: 63500, quantity: 40, madeAmount: 2240000 },
@@ -264,13 +289,14 @@ const furnitureCostItems = [
 const nav = [
   "대시보드",
   "결제 신청",
+  "결제 검토·승인",
   "은행 이체 파일 생성",
   "공사비 집계",
-  "엑셀 업로드",
+  "매장별 공사 관리",
   "공사 시작 접수",
   "결제 계좌 관리",
   "첨부 파일 보기",
-  "매장별 공사 관리",
+  "엑셀 업로드",
   "진열장 원가 배분",
   "견적서 생성",
   "계약서 생성",
@@ -312,6 +338,7 @@ let paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
 let reportFilters = { store: "", search: "", start: "", end: "", group: "store", source: "payments" };
 let workspaceSearch = "";
 let paymentPage = 1;
+let paymentScope = "mine";
 let importRows = [];
 let importedDraft = null;
 let lastLoadedAt = null;
@@ -321,7 +348,7 @@ function workspaceSearchForm(placeholder = "검색") {
 }
 
 function paymentFilterToolbar(count, total) {
-  return `<form id="payment-filter-form" class="filter-toolbar"><label>검색<input name="search" value="${escapeAttr(paymentFilters.search)}" placeholder="매장·업체·공사 품목"></label><label>상태<select name="status"><option value="">전체 상태</option>${["신청", "승인", "반려"].map((s) => `<option ${s === paymentFilters.status ? "selected" : ""}>${s}</option>`).join("")}</select></label><label>지급 구분<select name="tax"><option value="">전체 구분</option><option value="일반 송금" ${paymentFilters.tax === "일반 송금" ? "selected" : ""}>일반 계산서</option><option ${paymentFilters.tax === "사업소득 3.3%" ? "selected" : ""}>사업소득 3.3%</option></select></label><label>신청 시작일<input type="date" name="start" value="${escapeAttr(paymentFilters.start)}"></label><label>신청 종료일<input type="date" name="end" value="${escapeAttr(paymentFilters.end)}"></label><button class="primary">조회</button><button type="button" data-payment-reset>초기화</button><span class="result-count">전체 ${total}건 중 ${count}건</span></form>`;
+  return `<form id="payment-filter-form" class="filter-toolbar"><label>검색<input name="search" value="${escapeAttr(paymentFilters.search)}" placeholder="매장·업체·공사 품목"></label><label>상태<select name="status"><option value="">전체 상태</option>${["신청", "승인", "반려", "취소"].map((s) => `<option ${s === paymentFilters.status ? "selected" : ""}>${s}</option>`).join("")}</select></label><label>지급 구분<select name="tax"><option value="">전체 구분</option><option value="일반 송금" ${paymentFilters.tax === "일반 송금" ? "selected" : ""}>일반 계산서</option><option ${paymentFilters.tax === "사업소득 3.3%" ? "selected" : ""}>사업소득 3.3%</option></select></label><label>신청 시작일<input type="date" name="start" value="${escapeAttr(paymentFilters.start)}"></label><label>신청 종료일<input type="date" name="end" value="${escapeAttr(paymentFilters.end)}"></label><button class="primary">조회</button><button type="button" data-payment-reset>초기화</button><span class="result-count">전체 ${total}건 중 ${count}건</span></form>`;
 }
 
 function canLeaveForm() {
@@ -330,6 +357,8 @@ function canLeaveForm() {
 
 function navigateTo(view) {
   if (!visibleNav().includes(view) || !canLeaveForm()) return;
+  if (view === "결제 검토·승인" && activeView !== view) paymentFilters = { search: "", status: "신청", tax: "", start: "", end: "" };
+  if (view === "결제 신청" && activeView !== view) paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
   activeView = view;
   workspaceSearch = "";
   render();
@@ -371,7 +400,7 @@ function bindWorkspaceEvents() {
   document.querySelector("[data-income-filter]")?.addEventListener("click", () => {
     if (!canLeaveForm()) return;
     paymentFilters = { search: "", status: "", tax: "사업소득 3.3%", start: "", end: "" };
-    paymentPage = 1; activeView = "결제 신청"; render();
+    paymentPage = 1; activeView = activeRole === "전체 관리자" ? "결제 검토·승인" : "결제 신청"; render();
   });
   for (const [id, update] of [
     ["payment-filter-form", (values) => { paymentFilters = values; paymentPage = 1; }],
@@ -386,6 +415,9 @@ function bindWorkspaceEvents() {
   });
   document.querySelectorAll("[data-payment-page]").forEach((button) => button.addEventListener("click", () => {
     if (!canLeaveForm()) return; paymentPage = Number(button.dataset.paymentPage); render();
+  }));
+  document.querySelectorAll("[data-payment-scope]").forEach((button) => button.addEventListener("click", () => {
+    if (!canLeaveForm()) return; paymentScope = button.dataset.paymentScope; paymentPage = 1; render();
   }));
   document.querySelector("[data-payment-reset]")?.addEventListener("click", () => { if (!canLeaveForm()) return; paymentFilters = { search: "", status: "", tax: "", start: "", end: "" }; paymentPage = 1; render(); });
   document.querySelector("[data-report-reset]")?.addEventListener("click", () => { reportFilters = { store: "", search: "", start: "", end: "", group: "store", source: "payments" }; render(); });
@@ -448,6 +480,7 @@ const statusClass = (status) => {
     승인: "green",
     신청: "amber",
     반려: "red",
+    취소: "gray",
     진행중: "blue",
     완료: "green",
     미착공: "gray",
@@ -467,14 +500,15 @@ async function loadData() {
     return previewData;
   }
 
-  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems, storeQuotes] = await Promise.all([
+  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems, storeQuotes, lifecycle] = await Promise.all([
     readTable(supabase, "payments"),
     readTable(supabase, "stores"),
     readTable(supabase, "vendors"),
     readTable(supabase, "construction_starts"),
     readTable(supabase, "user_roles"),
     readTable(supabase, "construction_cost_parts"),
-    readTable(supabase, "store_quotes")
+    readTable(supabase, "store_quotes"),
+    supabase.from("payments").select("created_by,row_version,cancelled_at").limit(1)
   ]);
 
   const requiredSources = [
@@ -508,7 +542,8 @@ async function loadData() {
     userRoles: userRoles.error ? [] : userRoles.data,
     paymentItems: uniquePaymentItems,
     storeQuotes: storeQuotes.error ? [] : storeQuotes.data,
-    costParts: paymentItems.error ? [] : paymentItems.data
+    costParts: paymentItems.error ? [] : paymentItems.data,
+    lifecycleReady: !lifecycle.error
   };
 }
 
@@ -564,6 +599,7 @@ export async function startApp() {
     if (!supabase) {
       if (!LOCAL_PREVIEW_MODE) throw new Error("서버 연결 설정을 확인해 주세요.");
       activeRole = "전체 관리자";
+      currentUser = previewActors.admin;
       await refreshDataAndRender();
       return;
     }
@@ -590,6 +626,7 @@ export async function startApp() {
 
 function findDuplicateRisk(data, vendor, amount) {
   return data.payments.find((payment) => {
+    if (!isActivePayment(payment)) return false;
     const sameVendor = payment.vendor.trim() === vendor.trim();
     const diffRate = Math.abs(payment.amount - amount) / Math.max(amount, 1);
     return sameVendor && diffRate <= 0.1;
@@ -598,6 +635,7 @@ function findDuplicateRisk(data, vendor, amount) {
 
 function findSameStoreItemRisk(data, store, paymentItem) {
   return data.payments.find((payment) => {
+    if (!isActivePayment(payment)) return false;
     const sameStore = String(payment.store || "").trim() === store.trim();
     const sameItem = String(payment.payment_item || "").trim() === paymentItem.trim();
     return sameStore && sameItem;
@@ -723,12 +761,12 @@ async function submitPayment(event) {
   const estimateFiles = formData.getAll("estimate_files").filter((file) => file.size > 0);
   const taxInvoiceFiles = formData.getAll("tax_invoice_files").filter((file) => file.size > 0);
   const idCardFiles = formData.getAll("id_card_files").filter((file) => file.size > 0);
-  const existingAttachments = editingPayment?.attachment_files || {};
+  const existingAttachments = editingPayment?.attachment_files || importedDraft?.attachment_files || {};
   const hasEstimateFiles = estimateFiles.length || (existingAttachments.estimate_files || []).length;
   const hasTaxInvoiceFiles = taxInvoiceFiles.length || (existingAttachments.tax_invoice_files || []).length;
   const hasIdCardFiles = idCardFiles.length || (existingAttachments.id_card_files || []).length;
 
-  if (paymentId && !editingPayment) {
+  if (paymentId && !canEditPayment(editingPayment, currentUser)) {
     message.textContent = "수정할 수 없는 결제 신청입니다. 이미 승인/반려 처리됐는지 확인해 주세요.";
     message.className = "form-message error";
     return;
@@ -814,11 +852,14 @@ async function submitPayment(event) {
     status: "신청",
     requested_at: editingPayment?.requested_at || today()
   };
+  if (!isEditing && importedDraft?.resubmitted_from) paymentPayload.resubmitted_from = importedDraft.resubmitted_from;
 
   if (!supabase) {
-    previewData.payments = isEditing
-      ? previewData.payments.map((payment) => (payment.id === paymentId ? { ...payment, ...paymentPayload } : payment))
-      : [{ id: Date.now(), ...paymentPayload }, ...previewData.payments];
+    const saved = isEditing
+      ? { ...editingPayment, ...paymentPayload, row_version: (editingPayment.row_version || 0) + 1, updated_at: new Date().toISOString() }
+      : { id: Date.now(), ...paymentPayload, created_by: currentUser.id, created_by_email: currentUser.email, created_at: new Date().toISOString(), row_version: 0 };
+    previewData.payments = isEditing ? previewData.payments.map((p) => p.id === paymentId ? saved : p) : [saved, ...previewData.payments];
+    recordPreviewEvent(editingPayment, saved, isEditing ? "수정" : "신청");
   } else {
     const { error, data: savedPayment } = isEditing
       ? await updatePendingPayment(supabase, editingPayment, paymentPayload)
@@ -1039,72 +1080,100 @@ async function submitConstructionStart(event) {
   await refreshDataAndRender("공사 시작 정보가 저장됐습니다. 결제 신청 매장 검색에도 반영됐습니다.");
 }
 
-async function updatePaymentStatus(paymentId, status) {
-  if (!paymentId || !["승인", "반려"].includes(status)) return;
-  if (status === "승인" && activeRole !== "전체 관리자") return;
+function recordPreviewEvent(before, after, type) {
+  previewData.paymentEvents.push({ id: Date.now() + Math.random(), payment_id: after.id, event_type: type, actor_id: currentUser.id, actor_email: currentUser.email, occurred_at: new Date().toISOString(), before_data: before ? structuredClone(before) : null, after_data: structuredClone(after) });
+}
 
-  if (!supabase) {
-    previewData.payments = previewData.payments.map((payment) =>
-      payment.id === paymentId ? { ...payment, status } : payment
-    );
-  } else {
-    const { data, error } = await supabase
-      .from("payments")
-      .update({ status })
-      .eq("id", paymentId)
-      .eq("status", "신청")
-      .select("id")
-      .maybeSingle();
+function transitionPreviewPayment(original, status, reason) {
+  const current = previewData.payments.find((p) => p.id === original.id);
+  if (!current || current.status !== "신청" || current.row_version !== original.row_version) throw new Error("다른 사용자가 변경한 신청입니다. 최신 내역을 다시 확인해 주세요.");
+  const changed = { ...current, status, row_version: current.row_version + 1, updated_at: new Date().toISOString() };
+  if (status === "취소") Object.assign(changed, { cancel_reason: reason, cancelled_at: new Date().toISOString(), cancelled_by: currentUser.id });
+  else Object.assign(changed, { reviewed_at: new Date().toISOString(), reviewed_by: currentUser.id, ...(status === "반려" ? { rejection_reason: reason } : {}) });
+  previewData.payments = previewData.payments.map((p) => p.id === original.id ? changed : p);
+  recordPreviewEvent(current, changed, status);
+}
 
-    if (error) {
-      render(`상태 변경 실패: ${error.message}`);
-      return;
-    }
-
-    if (!data) {
-      if (editingPaymentId === paymentId) editingPaymentId = null;
-      activeView = "결제 신청";
-      await refreshDataAndRender("상태 변경 실패: 이미 처리됐거나 권한이 없습니다. 새로고침 후 다시 확인해 주세요.");
-      return;
-    }
+async function updatePaymentStatus(original, status, reason = "") {
+  if (!currentData.lifecycleReady) throw new Error("수정·취소 및 승인 권한 변경을 DB에 적용한 뒤 사용할 수 있습니다.");
+  if (status === "취소" ? !canEditPayment(original, currentUser) : !canReviewPayment(original, activeRole)) throw new Error("이 신청을 처리할 권한이 없습니다.");
+  if (["취소", "반려"].includes(status) && !reason.trim()) throw new Error("처리 사유를 입력해 주세요.");
+  if (!supabase) transitionPreviewPayment(original, status, reason);
+  else {
+    const result = await changePendingStatus(supabase, original, status, reason);
+    if (result.error) throw result.error;
+    if (!result.data) throw new Error("다른 사용자가 수정 또는 승인한 신청입니다. 최신 내역을 다시 확인해 주세요.");
   }
+  if (editingPaymentId === original.id) editingPaymentId = null;
+  await refreshDataAndRender(status === "취소" ? "신청을 취소했습니다. 금액·증빙과 취소 이력은 보존됩니다." : `결제 신청이 ${status} 처리됐습니다.`);
+}
 
-  if (editingPaymentId === paymentId) editingPaymentId = null;
-  activeView = "결제 신청";
-  await refreshDataAndRender(`결제 신청이 ${status} 처리됐습니다.`);
+function showPaymentDecision(paymentId, status) {
+  const payment = currentData.payments.find((p) => p.id === paymentId);
+  if (!payment || !canLeaveForm()) return;
+  const original = structuredClone(payment);
+  const dialog = document.createElement("dialog");
+  dialog.className = "workflow-dialog";
+  dialog.innerHTML = `<form><span class="eyebrow">PAYMENT REVIEW</span><h2>${status === "취소" ? "신청 취소" : `결제 ${status}`}</h2><p>${safeText(payment.store)} · ${safeText(payment.vendor)} · ${safeText(payment.payment_item)}</p><div class="decision-amount"><span>신청 금액</span><strong>${formatKRW(payment.amount)}</strong><span>실지급액 ${formatKRW(payment.net_amount ?? payment.amount)}</span></div>${status === "승인" ? `<p>승인 후에는 신청 금액과 증빙을 수정하거나 취소할 수 없습니다.</p>` : `<label>${status === "취소" ? "취소" : "반려"} 사유<textarea name="reason" required maxlength="500" rows="3" placeholder="다음 확인자가 이해할 수 있도록 작성해 주세요."></textarea></label><p>${status === "취소" ? "원본 기록과 첨부파일은 삭제되지 않습니다." : "입력자가 사유를 확인하고 새 신청을 작성할 수 있습니다."}</p>`}<p role="status" data-decision-error></p><div class="dialog-actions"><button type="button" data-dialog-close>돌아가기</button><button class="primary" type="submit">${status === "취소" ? "신청 취소 확정" : `${status} 확정`}</button></div></form>`;
+  document.body.appendChild(dialog);
+  dialog.querySelector("[data-dialog-close]").addEventListener("click", () => { dialog.close(); dialog.remove(); });
+  dialog.addEventListener("cancel", () => dialog.remove());
+  dialog.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = dialog.querySelector("button[type='submit']"); button.disabled = true;
+    try {
+      await updatePaymentStatus(original, status, String(new FormData(event.currentTarget).get("reason") || "").trim());
+      dialog.close(); dialog.remove();
+    } catch (error) { dialog.querySelector("[data-decision-error]").textContent = error.message; button.disabled = false; }
+  });
+  dialog.showModal();
+}
+
+function paymentHistoryChangeText(event) {
+  if (!event.before_data) return `신청금액 ${formatKRW(event.after_data.amount)}`;
+  const labels = { store: "매장", vendor: "업체", payment_item: "공사 품목", amount: "신청 금액", estimate_total: "견적 총액", payment_type: "결제 방식", vendor_bank: "은행", vendor_account_number: "계좌", vendor_account_holder: "예금주", tax_type: "지급 구분", withholding_amount: "원천징수액", net_amount: "실지급액", memo: "메모" };
+  const money = new Set(["amount", "estimate_total", "withholding_amount", "net_amount"]);
+  const changes = Object.entries(labels).filter(([key]) => event.before_data[key] !== event.after_data[key]).map(([key, label]) => `${label}: ${money.has(key) ? formatKRW(event.before_data[key]) : safeText(event.before_data[key])} → ${money.has(key) ? formatKRW(event.after_data[key]) : safeText(event.after_data[key])}`);
+  if (JSON.stringify(event.before_data.attachment_files) !== JSON.stringify(event.after_data.attachment_files)) changes.push("첨부 증빙 변경 · 변경 전 정보도 이력 보존");
+  return changes.length ? changes.join("<br>") : `신청금액 ${formatKRW(event.after_data.amount)}`;
+}
+
+async function showPaymentHistory(paymentId) {
+  const dialog = document.createElement("dialog"); dialog.className = "workflow-dialog history-dialog";
+  dialog.innerHTML = `<h2>신청 변경 이력</h2><div data-history-content role="status">이력을 불러오고 있습니다.</div><button data-dialog-close>닫기</button>`;
+  document.body.appendChild(dialog); dialog.showModal();
+  dialog.querySelector("[data-dialog-close]").addEventListener("click", () => { dialog.close(); dialog.remove(); });
+  dialog.addEventListener("cancel", () => dialog.remove());
+  try {
+    if (!currentData.lifecycleReady) throw new Error("이력 보존 기능 적용 이전의 기록입니다. 과거 이력을 임의로 생성하지 않습니다.");
+    const result = supabase ? await supabase.from("payment_events").select("*").eq("payment_id", paymentId).order("id", { ascending: false }) : { data: previewData.paymentEvents.filter((e) => e.payment_id === paymentId).slice().reverse() };
+    if (result.error) throw result.error;
+    dialog.querySelector("[data-history-content]").innerHTML = result.data.length ? result.data.map((e) => `<article class="history-entry"><strong>${safeText(e.event_type)}</strong><small>${safeText(e.actor_email)} · ${safeText(new Date(e.occurred_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }))}</small><p>${paymentHistoryChangeText(e)}</p>${e.after_data.cancel_reason && e.event_type === "취소" ? `<p>취소 사유: ${safeText(e.after_data.cancel_reason)}</p>` : ""}${e.after_data.rejection_reason && e.event_type === "반려" ? `<p>반려 사유: ${safeText(e.after_data.rejection_reason)}</p>` : ""}</article>`).join("") : "보존된 변경 이력이 없습니다. 기능 적용 이전의 이력은 생성하지 않습니다.";
+  } catch (error) { dialog.querySelector("[data-history-content]").textContent = error.message; }
 }
 
 async function approveSelectedPayments(paymentIds) {
   if (activeRole !== "전체 관리자") return;
-  const ids = [...new Set(paymentIds.map(Number).filter(Boolean))];
-  if (!ids.length) {
+  const selected = currentData.payments.filter((p) => paymentIds.map(Number).includes(p.id) && canReviewPayment(p, activeRole));
+  if (!selected.length) {
     render("승인할 결제 신청을 먼저 선택해 주세요.");
     return;
   }
 
-  if (!supabase) {
-    previewData.payments = previewData.payments.map((payment) =>
-      ids.includes(payment.id) && payment.status === "신청" ? { ...payment, status: "승인" } : payment
-    );
-    activeView = "결제 신청";
-    await refreshDataAndRender(`${ids.length}건을 승인 처리했습니다.`);
-    return;
+  if (!currentData.lifecycleReady) { render("DB 권한 변경 적용 후 사용할 수 있습니다."); return; }
+  if (!window.confirm(`${selected.length}건, 신청액 합계 ${formatKRW(selected.reduce((n, p) => n + Number(p.amount), 0))}을 승인할까요? 승인 후에는 수정·취소할 수 없습니다.`)) return;
+  let approved = 0;
+  for (const payment of selected) {
+    try {
+      if (!supabase) transitionPreviewPayment(payment, "승인", "");
+      else {
+        const result = await changePendingStatus(supabase, payment, "승인");
+        if (result.error || !result.data) continue;
+      }
+      approved++;
+    } catch { /* Report skipped rows without pretending all selected rows succeeded. */ }
   }
-
-  const { data, error } = await supabase
-    .from("payments")
-    .update({ status: "승인" })
-    .in("id", ids)
-    .eq("status", "신청")
-    .select("id");
-
-  if (error) {
-    render(`선택 승인 실패: ${error.message}`);
-    return;
-  }
-
-  activeView = "결제 신청";
-  await refreshDataAndRender(`${data?.length || 0}건을 승인 처리했습니다. 이제 엑셀 다운로드를 누르면 승인된 건이 내려갑니다.`);
+  await refreshDataAndRender(`${approved}건 승인${approved < selected.length ? ` · ${selected.length - approved}건은 내용 변경 또는 권한 문제로 제외됐습니다. 다시 검토해 주세요.` : " · 은행 이체 메뉴에서 지급 준비를 이어가세요."}`);
 }
 
 async function saveStoreQuote(storeName, status) {
@@ -1570,19 +1639,23 @@ function paymentReviewCards(data, canApprove = false) {
       ${data.payments
         .map((payment) => {
           const canSelectPending = payment.status === "신청" && canApprove;
+          const editable = currentData.lifecycleReady && canEditPayment(payment, currentUser);
+          const copyable = currentData.lifecycleReady && canResubmitPayment(payment, currentUser);
+          const owned = Boolean(payment.created_by && payment.created_by === currentUser?.id);
 
           return `
-            <details class="payment-review-card">
-              <summary>
+            <article class="payment-review-card" data-request-id="${escapeAttr(payment.id)}">
+              <div class="payment-card-heading">
                 <div class="payment-summary-main">
                   ${
                     canSelectPending
-                      ? `<input type="checkbox" class="payment-select" value="${payment.id}" aria-label="${escapeAttr(payment.store)} 선택" />`
+                      ? `<input type="checkbox" class="payment-select" value="${payment.id}" ${currentData.lifecycleReady ? "" : "disabled"} aria-label="${escapeAttr(payment.store)} 선택" />`
                       : ""
                   }
                   <div>
                     <strong>${safeText(payment.store)}</strong>
                     <span>${safeText(payment.vendor)}</span>
+                    <small class="request-author">${safeText(payment.created_by_email || "입력자 미기록 · 기존 내역")}${owned ? " · 내 신청" : ""}</small>
                   </div>
                 </div>
                 <div class="payment-summary-meta">
@@ -1591,7 +1664,13 @@ function paymentReviewCards(data, canApprove = false) {
                   ${incomeBadge(payment)}
                   <span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span>
                 </div>
-              </summary>
+              </div>
+              <div class="request-quick-actions">
+                <span>${payment.status === "승인" ? "승인 완료 · 수정·취소 잠금" : payment.status === "취소" ? "입력자 취소 · 원본 보존" : payment.status === "반려" ? "관리자 반려 · 사유 확인" : editable ? "승인 전 수정·취소 가능" : canSelectPending ? "내용 확인 후 승인·반려" : "입력자 본인만 수정·취소 가능"}</span>
+                <div>${editable ? `<button data-payment-edit="${payment.id}">수정</button><button class="danger-outline" data-payment-id="${payment.id}" data-payment-status="취소">신청 취소</button>` : ""}${canSelectPending && currentData.lifecycleReady ? `<button data-payment-id="${payment.id}" data-payment-status="반려">반려</button><button class="primary" data-payment-id="${payment.id}" data-payment-status="승인">승인</button>` : ""}${copyable ? `<button data-payment-resubmit="${payment.id}">수정 후 새 신청</button>` : ""}${owned || activeRole === "전체 관리자" ? `<button data-payment-history="${payment.id}">변경 이력</button>` : ""}</div>
+              </div>
+              ${payment.cancel_reason ? `<p class="request-reason">취소 사유: ${safeText(payment.cancel_reason)}</p>` : payment.rejection_reason ? `<p class="request-reason">반려 사유: ${safeText(payment.rejection_reason)}</p>` : ""}
+              <details class="request-details"><summary>상세 내역·증빙 보기</summary>
               <div class="payment-detail-grid">
                 <div><span>입금은행</span><strong>${safeText(payment.vendor_bank)}</strong></div>
                 <div><span>입금계좌</span><strong>${safeText(payment.vendor_account_number)}</strong></div>
@@ -1605,18 +1684,11 @@ function paymentReviewCards(data, canApprove = false) {
                 <div><span>첨부 자료</span><strong>${paymentAttachmentSummary(payment)}</strong></div>
                 <div><span>견적서 반영</span><strong>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</strong></div>
                 <div><span>신청일</span><strong>${safeText(payment.requested_at)}</strong></div>
+                ${payment.resubmitted_from ? `<div><span>새 신청의 원본 기록</span><strong>#${safeText(payment.resubmitted_from)} · 원본 별도 보존</strong></div>` : ""}
                 ${isBusinessIncome(payment) ? `<div class="income-detail"><span>신고 알림</span><strong>사업소득 3.3% · 아마란스 신고 확인</strong><small>송금완료와 신고완료는 별도입니다.</small></div>` : ""}
               </div>
-              <div class="payment-detail-actions">
-                ${
-                  payment.status === "신청"
-                    ? `<button data-payment-edit="${escapeAttr(payment.id)}">수정</button>
-                       <button data-payment-id="${escapeAttr(payment.id)}" data-payment-status="반려">신청 취소</button>
-                       ${canApprove ? `<button class="primary" data-payment-id="${escapeAttr(payment.id)}" data-payment-status="승인">승인</button>` : ""}`
-                      : `<span class="muted">처리 완료</span>`
-                }
-              </div>
-            </details>`;
+              </details>
+            </article>`;
         })
         .join("")}
     </div>
@@ -1991,7 +2063,7 @@ function selectAttr(value, currentValue) {
 }
 
 function paymentForm() {
-  const editingPayment = currentData.payments.find((payment) => payment.id === editingPaymentId && payment.status === "신청") || importedDraft;
+  const editingPayment = currentData.payments.find((payment) => payment.id === editingPaymentId && canEditPayment(payment, currentUser)) || importedDraft;
   const isEditing = Boolean(editingPayment?.id);
   const valueFor = (field, fallbackValue = "") => escapeAttr(editingPayment?.[field] ?? fallbackValue);
 
@@ -2001,7 +2073,7 @@ function paymentForm() {
         <h2>${isEditing ? "결제 신청 수정" : "결제 신청 입력"}</h2>
         ${isEditing ? `<button data-payment-edit-cancel>수정 취소</button>` : ""}
       </div>
-      <div class="notice">${isEditing ? "승인 전 신청 건만 수정할 수 있습니다. 기존 첨부파일은 유지되고 새 파일을 추가할 수 있습니다." : "등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다."}</div>
+      <div class="notice">${isEditing ? "본인이 작성한 승인 전 신청만 수정할 수 있습니다. 기존 첨부는 유지되며 변경 이력이 남습니다." : importedDraft?.resubmitted_from ? "기존 신청은 보존하고 새 신청을 작성합니다. 금액과 증빙을 다시 확인해 주세요." : "매장·품목별로 신청하세요. 승인 전에는 내 신청을 수정하거나 취소할 수 있습니다."}</div>
       <form id="payment-form">
         <input type="hidden" name="payment_id" value="${isEditing ? editingPayment.id : ""}" />
         <label>매장
@@ -2052,6 +2124,7 @@ function paymentForm() {
         <label>견적서 첨부<input name="estimate_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>세금계산서 첨부<input name="tax_invoice_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>주민등록증 첨부<input name="id_card_files" type="file" accept="image/*,application/pdf" multiple /></label>
+        ${(editingPayment?.attachment_files && Object.values(editingPayment.attachment_files).some((files) => Array.isArray(files) && files.length)) ? `<div class="notice wide"><strong>유지되는 기존 증빙</strong>${paymentAttachmentSummary(editingPayment)}</div>` : ""}
         <label>메모<input name="memo" value="${valueFor("memo")}" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">${isEditing ? "수정 저장" : "검토 요청 생성"}</button>
@@ -2142,26 +2215,32 @@ function dashboardView(data) {
 }
 
 function paymentView(data) {
-  const canDownloadTransfer = visibleNav().includes("은행 이체 파일 생성");
-  const pendingCount = data.payments.filter((payment) => payment.status === "신청").length;
-  const filtered = filterPayments(data.payments, paymentFilters);
+  const reviewing = activeView === "결제 검토·승인";
+  const canDownloadTransfer = reviewing && activeRole === "전체 관리자";
+  const scope = !reviewing && paymentScope === "mine" ? data.payments.filter((p) => currentUser?.id && p.created_by === currentUser.id) : data.payments;
+  const pendingCount = scope.filter((payment) => payment.status === "신청").length;
+  const filtered = filterPayments(scope, paymentFilters);
   const pages = Math.max(1, Math.ceil(filtered.length / 25));
   paymentPage = Math.min(paymentPage, pages);
   const pageData = { ...data, payments: filtered.slice((paymentPage - 1) * 25, paymentPage * 25) };
 
   return `
-    <section class="page-intro"><span class="eyebrow">REQUEST → REVIEW → TRANSFER</span><h2>품목별로 올리고, 확인하고, 지급하세요.</h2><p>매장과 공사 품목을 정확히 선택하면 같은 기록이 집계에 반영됩니다.</p></section>
-    <section class="grid payment-layout">
-      ${paymentForm()}
-      <article class="panel">
+    <section class="page-intro"><span class="eyebrow">${reviewing ? "REVIEW → APPROVE → TRANSFER" : "CREATE → CHECK → CORRECT"}</span><h2>${reviewing ? "입력된 내용을 검토하고, 승인하세요." : "작성한 신청은 승인 전에 바로잡으세요."}</h2><p>${reviewing ? "품목·금액·계좌·증빙을 확인하세요. 승인 후에는 원본을 잠그고 이체 단계로 넘깁니다." : "내 신청에서 수정·취소할 수 있습니다. 취소한 기록도 금액·증빙과 함께 남습니다."}</p></section>
+    ${reviewing ? "" : `<div class="request-jump-links"><a href="#payment-form">신청서 작성</a><a href="#payment-list">내 신청 수정·취소 보기 ↓</a></div>`}
+    ${data.lifecycleReady ? "" : `<div class="data-alert">입력자별 수정·취소 기능은 DB 권한 변경 적용 후 활성화됩니다. 기존 기록은 그대로 조회하며 입력자를 임의로 배정하지 않습니다.</div>`}
+    <section class="grid ${reviewing ? "" : "payment-layout"}">
+      ${reviewing ? "" : paymentForm()}
+      <article class="panel" id="payment-list">
         <div class="panel-head">
-          <h2>결제 신청 검토</h2>
+          <h2>${reviewing ? "결제 검토·승인" : paymentScope === "mine" ? "내 결제 신청 내역" : "전체 결제 신청 내역"}</h2>
           <div class="row-actions">
-            <button>승인 대기 ${pendingCount}건</button>
-            ${canDownloadTransfer ? `<button data-view-link="은행 이체 파일 생성">은행 이체 전표</button>` : ""}
+            <span class="badge ${statusClass("신청")}">${!reviewing && paymentScope === "mine" ? "내 승인 대기" : "승인 대기"} ${pendingCount}건</span>
+            ${canDownloadTransfer ? `<button data-view-link="은행 이체 파일 생성">은행 이체 파일 생성</button>` : ""}
           </div>
         </div>
-        ${paymentFilterToolbar(filtered.length, data.payments.length)}
+        ${reviewing ? "" : `<div class="segmented-tabs"><button class="${paymentScope === "mine" ? "active" : ""}" data-payment-scope="mine">내 신청</button><button class="${paymentScope === "all" ? "active" : ""}" data-payment-scope="all">전체 내역 조회</button></div>`}
+        ${!reviewing && paymentScope === "mine" && data.payments.some((p) => !p.created_by) ? `<div class="notice">입력자 정보가 없는 이전 신청은 ‘전체 내역 조회’에서 확인할 수 있습니다.</div>` : ""}
+        ${paymentFilterToolbar(filtered.length, scope.length)}
         ${
           canDownloadTransfer
             ? `<div class="bulk-actions">
@@ -2169,8 +2248,8 @@ function paymentView(data) {
                   <input type="checkbox" data-select-pending-payments />
                   현재 페이지 승인대기 선택
                 </label>
-                <button class="primary" data-approve-selected-payments>선택 승인</button>
-                <button data-view-link="은행 이체 파일 생성">은행 이체 전표로 이동</button>
+                <button class="primary" data-approve-selected-payments ${data.lifecycleReady ? "" : "disabled"}>선택 승인</button>
+                <button data-view-link="은행 이체 파일 생성">은행 이체 파일 생성으로 이동</button>
               </div>`
             : ""
         }
@@ -2591,6 +2670,7 @@ function activeContent(data) {
   if (activeView === "엑셀 업로드") return importPanel(importRows);
   if (activeView === "공사 시작 접수") return constructionStartView(data);
   if (activeView === "결제 신청") return paymentView(data);
+  if (activeView === "결제 검토·승인") return paymentView(data);
   if (activeView === "결제 계좌 관리" || activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "첨부 파일 보기") return attachmentView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
@@ -2603,7 +2683,7 @@ function activeContent(data) {
 }
 
 function visibleNav() {
-  return roleMenus[activeRole] || nav;
+  return roleMenus[activeRole] || roleMenus["인테리어 공사실장"];
 }
 
 function roleControl() {
@@ -2757,7 +2837,7 @@ function render(notice = "") {
       <nav aria-label="업무 메뉴">
         ${visibleNav()
           .map(
-            (item, index) => `${index === 0 ? '<span class="nav-heading">WORKSPACE</span>' : item === "진열장 원가 배분" ? '<span class="nav-heading">COST & DOCUMENTS</span>' : item === "관리자 설정" ? '<span class="nav-heading">MANAGEMENT</span>' : ""}<button data-view="${item}" class="${item === activeView ? "active" : ""}" ${item === activeView ? 'aria-current="page"' : ""}><span class="nav-icon">${navigationIcon(item)}</span><span>${item}</span>${item === "결제 신청" ? `<small>${currentData.payments.filter((p) => p.status === "신청").length}</small>` : ""}</button>`
+            (item, index) => `${navigationSection(item, index)}<button data-view="${item}" class="${item === activeView ? "active" : ""}" ${item === activeView ? 'aria-current="page"' : ""}><span class="nav-icon">${navigationIcon(item)}</span><span>${item}</span>${navigationBadge(item)}</button>`
           )
           .join("")}
       </nav>
@@ -2958,9 +3038,13 @@ function render(notice = "") {
 
   document.querySelectorAll("[data-payment-edit]").forEach((button) => {
     button.addEventListener("click", () => {
+      const payment = currentData.payments.find((p) => p.id === Number(button.dataset.paymentEdit));
+      if (!canEditPayment(payment, currentUser) || !canLeaveForm()) return;
       editingPaymentId = Number(button.dataset.paymentEdit);
+      importedDraft = null;
       activeView = "결제 신청";
       render("선택한 결제 신청을 수정 중입니다.");
+      document.querySelector("#payment-form")?.closest("article")?.scrollIntoView({ block: "start" });
     });
   });
 
@@ -2972,15 +3056,40 @@ function render(notice = "") {
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
     button.addEventListener("click", () => {
       const status = button.dataset.paymentStatus;
-      if (status === "반려" && !window.confirm("이 결제 신청을 취소 처리할까요? 기록은 반려 상태로 남습니다.")) return;
-      updatePaymentStatus(Number(button.dataset.paymentId), status);
+      showPaymentDecision(Number(button.dataset.paymentId), status);
     });
   });
+  document.querySelectorAll("[data-payment-history]").forEach((button) => button.addEventListener("click", () => showPaymentHistory(Number(button.dataset.paymentHistory))));
+  document.querySelectorAll("[data-payment-resubmit]").forEach((button) => button.addEventListener("click", () => {
+    const payment = currentData.payments.find((p) => p.id === Number(button.dataset.paymentResubmit));
+    if (!canResubmitPayment(payment, currentUser) || !canLeaveForm()) return;
+    const { id, ...draft } = structuredClone(payment);
+    importedDraft = { ...draft, resubmitted_from: id };
+    editingPaymentId = null; activeView = "결제 신청";
+    paymentScope = "mine"; paymentPage = 1;
+    paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
+    render("기존 신청은 보존하고 새 신청서를 불러왔습니다. 수정 후 제출해 주세요.");
+    document.querySelector("#payment-form")?.closest("article")?.scrollIntoView({ block: "start" });
+  }));
   document.querySelectorAll("[data-preview-role]").forEach((button) => button.addEventListener("click", () => {
     if (!LOCAL_PREVIEW_MODE || !canLeaveForm()) return;
-    activeRole = button.dataset.previewRole; activeView = visibleNav()[0]; render();
+    activeRole = button.dataset.previewRole;
+    currentUser = activeRole === "전체 관리자" ? previewActors.admin : previewActors.staff;
+    paymentScope = "mine"; editingPaymentId = null; importedDraft = null;
+    paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
+    activeView = visibleNav()[0]; render();
   }));
   bindWorkspaceEvents();
+}
+
+function navigationSection(item, index) {
+  const title = index === 0 ? "주 업무" : item === "매장별 공사 관리" || (activeRole !== "전체 관리자" && item === "공사 시작 접수") ? "현장·기준정보" : item === "진열장 원가 배분" ? "원가·문서" : item === "관리자 설정" ? "관리" : "";
+  return title ? `<span class="nav-heading">${title}</span>` : "";
+}
+
+function navigationBadge(item) {
+  const count = item === "결제 신청" ? currentData.payments.filter((p) => canEditPayment(p, currentUser)).length : item === "결제 검토·승인" ? currentData.payments.filter((p) => p.status === "신청").length : 0;
+  return count ? `<small>${count}</small>` : "";
 }
 
 function navigationIcon(view) {
@@ -2988,6 +3097,7 @@ function navigationIcon(view) {
     "대시보드": "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
     "공사비 집계": "M4 20V10h4v10 M10 20V4h4v16 M16 20v-7h4v7",
     "결제 신청": "M5 3h14v18l-3-2-4 2-4-2-3 2z M8 8h8 M8 12h5",
+    "결제 검토·승인": "M5 3h14v18H5z M8 8h8 M8 13l3 3 5-6",
     "은행 이체 파일 생성": "M3 7l9-4 9 4H3z M5 10v7 M12 10v7 M19 10v7 M3 21h18",
     "결제 계좌 관리": "M3 5h18v14H3z M3 10h18 M6 15h4",
     "엑셀 업로드": "M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6",

@@ -3,6 +3,10 @@ export const transferCompleted = (payment) => ["송금완료", "이체완료"].i
 export const grossAmount = (payment) => Number(payment.amount || 0);
 export const netPayment = (payment) => Number(payment.net_amount ?? (grossAmount(payment) - Number(payment.withholding_amount || 0)));
 export const matchesSearch = (value, search) => String(value ?? "").toLocaleLowerCase("ko-KR").includes(String(search || "").trim().toLocaleLowerCase("ko-KR"));
+export const canEditPayment = (payment, user) => payment?.status === "신청" && Boolean(user?.id && payment.created_by && payment.created_by === user.id);
+export const canReviewPayment = (payment, role) => payment?.status === "신청" && role === "전체 관리자";
+export const canResubmitPayment = (payment, user) => ["반려", "취소"].includes(payment?.status) && Boolean(user?.id && payment.created_by === user.id);
+export const isActivePayment = (payment) => !["반려", "취소"].includes(payment.status);
 
 export function filterPayments(payments, filters = {}) {
   return payments.filter((p) =>
@@ -25,7 +29,7 @@ export function summarizePayments(payments) {
     approved: sum(approved), paidCost: sum(paid), paidNet: sum(paid, netPayment),
     withholding: sum(paid, (p) => Number(p.withholding_amount || 0)),
     unpaid: sum(approved.filter((p) => !transferCompleted(p)), netPayment),
-    businessCount: payments.filter((p) => p.status !== "반려" && isBusinessIncome(p)).length,
+    businessCount: payments.filter((p) => isActivePayment(p) && isBusinessIncome(p)).length,
     businessPaidCount: paid.filter(isBusinessIncome).length
   };
 }
@@ -70,7 +74,7 @@ export function validateImportRows(rows, data) {
     if (!Number.isSafeInteger(amount) || amount <= 0) errors.push("금액은 0보다 큰 정수");
     if (!tax) errors.push("지급 구분 확인");
     const key = JSON.stringify([store, vendor, item, amount]);
-    if (seen.has(key) || data.payments.some((p) => p.store === store && p.vendor === vendor && p.payment_item === item && Number(p.amount) === amount && p.status !== "반려")) errors.push("중복 가능성 확인");
+    if (seen.has(key) || data.payments.some((p) => p.store === store && p.vendor === vendor && p.payment_item === item && Number(p.amount) === amount && isActivePayment(p))) errors.push("중복 가능성 확인");
     seen.add(key);
     return { row: index + 2, store, vendor, payment_item: item, amount, estimate_total: amount, tax_type: tax || rawTax, payment_type: "일시 지급", memo: String(row["메모"] || row.memo || ""), errors };
   });

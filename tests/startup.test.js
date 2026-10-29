@@ -19,6 +19,7 @@ async function appWithSession(getSession, location = { hostname: "example.test",
     },
     window: { location },
     URLSearchParams,
+    structuredClone,
     setTimeout: (callback, ms) => setTimeout(callback, Math.min(ms, 20)),
     clearTimeout,
     console

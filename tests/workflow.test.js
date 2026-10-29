@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readTable, updatePendingPayment } from "../src/data.js";
-import { summarizePayments, aggregateCosts, filterPayments, csvText, validateImportRows } from "../src/workflow.js";
+import { readTable, updatePendingPayment, changePendingStatus } from "../src/data.js";
+import { summarizePayments, aggregateCosts, filterPayments, csvText, validateImportRows, canEditPayment, canReviewPayment, canResubmitPayment } from "../src/workflow.js";
 import { incomeBadge, incomeReminder, costReportRows } from "../src/workspace-views.js";
 
 const payments = [
@@ -10,6 +10,28 @@ const payments = [
   { id: 3, store: "A", payment_item: "전기", amount: 9000000, status: "반려", tax_type: "사업소득 3.3%", requested_at: "2026-10-03" },
   { id: 4, store: "B", payment_item: "철거", amount: 2000000, status: "승인", transfer_status: "파일생성", requested_at: "2026-10-04" }
 ];
+
+test("only a known applicant can edit/cancel a pending request; admin does not imply ownership", () => {
+  const owner = { id: "owner" };
+  const pending = { status: "신청", created_by: "owner" };
+  assert.equal(canEditPayment(pending, owner), true);
+  assert.equal(canEditPayment(pending, { id: "admin" }), false);
+  assert.equal(canEditPayment({ status: "신청", created_by: null }, owner), false);
+  for (const status of ["승인", "반려", "취소"]) assert.equal(canEditPayment({ ...pending, status }, owner), false);
+  assert.equal(canReviewPayment(pending, "전체 관리자"), true);
+  assert.equal(canReviewPayment(pending, "인테리어 공사실장"), false);
+});
+
+test("cancelled business-income requests stay out of costs and reminders", () => {
+  const cancelled = { ...payments[0], status: "취소" };
+  const totals = summarizePayments([cancelled]);
+  assert.equal(totals.approved, 0);
+  assert.equal(totals.paidNet, 0);
+  assert.equal(totals.businessCount, 0);
+  assert.equal(incomeReminder({ payments: [cancelled] }), "");
+  assert.equal(canResubmitPayment({ ...cancelled, created_by: "owner" }, { id: "owner" }), true);
+  assert.equal(canResubmitPayment({ ...cancelled, created_by: "owner" }, { id: "other" }), false);
+});
 
 test("cost totals separate approval, actual net payment, withholding and rejection", () => {
   const snapshot = structuredClone(payments);
@@ -82,6 +104,30 @@ test("saving a stale draft cannot overwrite a concurrent edit or approval", asyn
 
 test("CSV protects formulas and leading-zero account numbers", () => {
   assert.equal(csvText([["=1+1", "00123", 'a"b', 0]]), '\uFEFF"\'=1+1","\'00123","a""b","0"');
+});
+
+test("status decisions cannot approve/cancel unseen edits or operate without a version", async () => {
+  const original = { id: 9, status: "신청", row_version: 0 };
+  const live = { ...original, row_version: 1 };
+  let writes = 0;
+  const client = { from: () => ({ update: (payload) => {
+    const conditions = [];
+    const query = {
+      eq: (key, value) => { conditions.push([key, value]); return query; },
+      select: () => query,
+      maybeSingle: async () => {
+        if (!conditions.every(([key, value]) => live[key] === value)) return { data: null, error: null };
+        Object.assign(live, payload); live.row_version++; writes++;
+        return { data: { id: live.id }, error: null };
+      }
+    };
+    return query;
+  } }) };
+  for (const status of ["승인", "반려", "취소"]) assert.equal((await changePendingStatus(client, original, status, "sample reason")).data, null);
+  await assert.rejects(changePendingStatus(client, { id: 9, status: "신청" }, "승인"), /버전/);
+  assert.equal(writes, 0);
+  assert.equal((await changePendingStatus(client, { ...live }, "승인")).data.id, 9);
+  assert.equal(writes, 1);
 });
 
 test("import review flags invalid values, unknown names and duplicates without modifying data", () => {
