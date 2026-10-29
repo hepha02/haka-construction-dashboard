@@ -5,10 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HAKA Construction Admin</title>
     <link rel="stylesheet" href="./src/styles.css" />
+    <link rel="stylesheet" href="./src/workspace.css" />
   </head>
   <body>
-    <div id="app"></div>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-    <script type="module" src="./src/main.js"></script>
+    <div id="app" class="auth-shell">
+      <main class="auth-page">
+        <section class="auth-panel" aria-live="polite">
+          <div class="brand auth-brand">
+            <span class="brand-mark">H</span>
+            <div><strong>HAKA Construction</strong><small>공사비 관리 시스템</small></div>
+          </div>
+          <h1>화면을 불러오는 중입니다</h1>
+          <p>잠시만 기다려 주세요. 계속 이 화면이 보이면 새로고침해 주세요.</p>
+          <a href="./">새로고침</a>
+          <noscript><p>이 사이트를 사용하려면 브라우저에서 JavaScript를 허용해 주세요.</p></noscript>
+        </section>
+      </main>
+    </div>
+    <script async src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script type="module" src="./src/bootstrap.js"></script>
   </body>
 </html>
