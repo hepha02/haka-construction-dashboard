@@ -6,6 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 const ids = { owner: "00000000-0000-4000-8000-000000000001", other: "00000000-0000-4000-8000-000000000002", admin: "00000000-0000-4000-8000-000000000003" };
 const db = new PGlite();
 let legacyBefore;
+let legacyEditRejected = false;
 async function asUser(name, extra = {}) {
   await db.exec("reset role");
   await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: ids[name], email: `${name}@example.invalid`, role: "authenticated", ...extra })]);
@@ -38,11 +39,29 @@ before(async () => {
     grant select on public.payments to anon;
     grant usage,select on sequence public.payments_id_seq to authenticated;`);
   legacyBefore = (await db.query("select * from public.payments where id=900")).rows[0];
+  await db.exec(`insert into public.payments(id,store,vendor,amount,status,net_amount)
+    values (901,'Legacy pending store','Legacy pending vendor',10000,'신청',10000)`);
+  await asUser("owner");
+  await assert.rejects(db.query("update public.payments set memo='Correction attempt' where id=901"), (error) => {
+    legacyEditRejected = error.code === "42501";
+    return legacyEditRejected;
+  });
+  await db.exec("reset role");
   const migration = await readFile(new URL("../supabase/migrations/20261029092713_payment_request_lifecycle.sql", import.meta.url), "utf8");
   try { await db.exec(migration); }
   catch (error) { throw new Error(`${error.message} at ${error.position}: ${migration.slice(Number(error.position) - 100, Number(error.position) + 150)}`); }
 });
 after(async () => { await db.close(); });
+
+test("legacy policy reproduces pending-edit rejection without mutating or assigning the old request", async () => {
+  assert.equal(legacyEditRejected, true);
+  await db.exec("reset role");
+  const legacy = (await db.query("select * from public.payments where id=901")).rows[0];
+  assert.equal(legacy.status, "신청");
+  assert.equal(legacy.amount, 10000);
+  assert.equal(legacy.memo, null);
+  assert.equal(legacy.created_by, null);
+});
 
 test("migration preserves legacy values and never invents an applicant or history", async () => {
   await db.exec("reset role");

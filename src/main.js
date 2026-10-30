@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { renderStartupLoading, withTimeout } from "./startup.js";
 import { readTable, updatePendingPayment, changePendingStatus } from "./data.js";
+import { uploadAttachments } from "./attachments.js";
 import { isBusinessIncome, isActivePayment, canEditPayment, canReviewPayment, canResubmitPayment, transferCompleted, filterPayments, matchesSearch, csvText, validateImportRows } from "./workflow.js";
 import { dashboard, costReport, costReportRows, incomeBadge, incomeReminder, importPanel } from "./workspace-views.js";
 
@@ -473,7 +474,6 @@ const safeText = (value, fallback = "-") => {
   const text = value ?? "";
   return escapeAttr(text === "" ? fallback : text);
 };
-const safeFileName = (name) => String(name || "file").replace(/[^\w.\-가-힣]/g, "_");
 
 const statusClass = (status) => {
   const map = {
@@ -643,90 +643,15 @@ function findSameStoreItemRisk(data, store, paymentItem) {
 }
 
 async function uploadConstructionFiles(fileList, folder) {
-  const files = Array.from(fileList || []).filter((file) => file.size > 0);
-  if (!files.length) return [];
-
-  if (!supabase) {
-    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
-  }
-
-  const uploaded = [];
-  for (const file of files) {
-    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage
-      .from(CONSTRUCTION_FILE_BUCKET)
-      .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(CONSTRUCTION_FILE_BUCKET).getPublicUrl(path);
-    uploaded.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      path,
-      url: data.publicUrl
-    });
-  }
-  return uploaded;
+  return uploadAttachments(supabase, CONSTRUCTION_FILE_BUCKET, currentUser?.id || "user", fileList, folder);
 }
 
 async function uploadPaymentFiles(fileList, folder) {
-  const files = Array.from(fileList || []).filter((file) => file.size > 0);
-  if (!files.length) return [];
-
-  if (!supabase) {
-    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
-  }
-
-  const uploaded = [];
-  for (const file of files) {
-    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage
-      .from(PAYMENT_FILE_BUCKET)
-      .upload(path, file, { contentType: file.type, upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(PAYMENT_FILE_BUCKET).getPublicUrl(path);
-    uploaded.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      path,
-      url: data.publicUrl
-    });
-  }
-  return uploaded;
+  return uploadAttachments(supabase, PAYMENT_FILE_BUCKET, currentUser?.id || "user", fileList, folder);
 }
 
 async function uploadVendorFiles(fileList, folder) {
-  const files = Array.from(fileList || []).filter((file) => file.size > 0);
-  if (!files.length) return [];
-
-  if (!supabase) {
-    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
-  }
-
-  const uploaded = [];
-  for (const file of files) {
-    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage
-      .from(VENDOR_FILE_BUCKET)
-      .upload(path, file, { contentType: file.type, upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(VENDOR_FILE_BUCKET).getPublicUrl(path);
-    uploaded.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      path,
-      url: data.publicUrl
-    });
-  }
-  return uploaded;
+  return uploadAttachments(supabase, VENDOR_FILE_BUCKET, currentUser?.id || "user", fileList, folder);
 }
 
 async function submitPayment(event) {
@@ -854,23 +779,28 @@ async function submitPayment(event) {
   };
   if (!isEditing && importedDraft?.resubmitted_from) paymentPayload.resubmitted_from = importedDraft.resubmitted_from;
 
-  if (!supabase) {
-    const saved = isEditing
-      ? { ...editingPayment, ...paymentPayload, row_version: (editingPayment.row_version || 0) + 1, updated_at: new Date().toISOString() }
-      : { id: Date.now(), ...paymentPayload, created_by: currentUser.id, created_by_email: currentUser.email, created_at: new Date().toISOString(), row_version: 0 };
-    previewData.payments = isEditing ? previewData.payments.map((p) => p.id === paymentId ? saved : p) : [saved, ...previewData.payments];
-    recordPreviewEvent(editingPayment, saved, isEditing ? "수정" : "신청");
-  } else {
-    const { error, data: savedPayment } = isEditing
-      ? await updatePendingPayment(supabase, editingPayment, paymentPayload)
-      : await supabase.from("payments").insert(paymentPayload);
-    if (error || (isEditing && !savedPayment)) {
-      submitButton.disabled = false;
-      submitButton.textContent = isEditing ? "수정 저장" : "검토 요청 생성";
-      message.textContent = `저장 실패: ${error?.message || "다른 사용자가 이미 처리한 신청입니다. 최신 내역을 확인해 주세요."}`;
-      message.className = "form-message error";
-      return;
+  try {
+    if (!supabase) {
+      const saved = isEditing
+        ? { ...editingPayment, ...paymentPayload, row_version: (editingPayment.row_version || 0) + 1, updated_at: new Date().toISOString() }
+        : { id: Date.now(), ...paymentPayload, created_by: currentUser.id, created_by_email: currentUser.email, created_at: new Date().toISOString(), row_version: 0 };
+      previewData.payments = isEditing ? previewData.payments.map((p) => p.id === paymentId ? saved : p) : [saved, ...previewData.payments];
+      recordPreviewEvent(editingPayment, saved, isEditing ? "수정" : "신청");
+    } else {
+      const { error, data: savedPayment } = isEditing
+        ? await updatePendingPayment(supabase, editingPayment, paymentPayload)
+        : await supabase.from("payments").insert(paymentPayload);
+      if (error) throw error;
+      if (isEditing && !savedPayment) throw new Error("다른 사용자가 먼저 수정하거나 처리한 신청입니다. 최신 내역을 확인해 주세요.");
     }
+  } catch (error) {
+    submitButton.disabled = false;
+    submitButton.textContent = isEditing ? "수정 저장" : "검토 요청 생성";
+    message.textContent = error.code === "42501"
+      ? "저장 권한 설정 때문에 저장되지 않았습니다. 입력 내용은 유지됩니다. 담당 관리자에게 권한 설정 확인을 요청해 주세요."
+      : `저장 결과 확인 실패: ${error.message} 입력 내용은 유지됩니다. 다시 제출하기 전 신청 내역을 확인해 주세요.`;
+    message.className = "form-message error";
+    return;
   }
 
   form.reset();

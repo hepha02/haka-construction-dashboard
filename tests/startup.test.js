@@ -28,7 +28,7 @@ async function appWithSession(getSession, location = { hostname: "example.test",
     this.setExport("createClient", () => { clientCreations++; return client; });
   }, { context });
   const modules = new Map();
-  for (const file of ["startup.js", "data.js", "workflow.js", "workspace-views.js"]) {
+  for (const file of ["startup.js", "data.js", "workflow.js", "workspace-views.js", "attachments.js"]) {
     const source = file === "startup.js" ? startupSource : await readFile(new URL(`../src/${file}`, import.meta.url), "utf8");
     modules.set(`./${file}`, new SourceTextModule(source, { context }));
   }
