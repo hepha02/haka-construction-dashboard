@@ -1,4 +1,9 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "@supabase/supabase-js";
+import { renderStartupLoading, withTimeout } from "./startup.js";
+import { readTable, updatePendingPayment, changePendingStatus } from "./data.js";
+import { uploadAttachments } from "./attachments.js";
+import { isBusinessIncome, isActivePayment, canEditPayment, canReviewPayment, canResubmitPayment, transferCompleted, filterPayments, matchesSearch, csvText, validateImportRows } from "./workflow.js";
+import { dashboard, costReport, costReportRows, incomeBadge, incomeReminder, importPanel } from "./workspace-views.js";
 
 const env = import.meta.env || {};
 const SUPABASE_URL =
@@ -10,6 +15,11 @@ const LOCAL_PREVIEW_MODE =
   typeof window !== "undefined" &&
   ["localhost", "127.0.0.1"].includes(window.location?.hostname || "") &&
   new URLSearchParams(window.location?.search || "").has("preview");
+const previewActors = {
+  admin: { id: "00000000-0000-4000-8000-000000000003", email: "admin@example.invalid" },
+  staff: { id: "00000000-0000-4000-8000-000000000001", email: "site@example.invalid" },
+  other: { id: "00000000-0000-4000-8000-000000000002", email: "other@example.invalid" }
+};
 
 const supabase =
   !LOCAL_PREVIEW_MODE && SUPABASE_URL && SUPABASE_ANON_KEY
@@ -237,8 +247,34 @@ const previewData = {
       vat_amount: 999000,
       total_amount: 10989000
     }
+  ],
+  costParts: [
+    { id: 1, store_name: "성수 플래그십", part_name: "목작업", amount: 12000000 },
+    { id: 2, store_name: "성수 플래그십", part_name: "전기", amount: 7800000 },
+    { id: 3, store_name: "부산 센텀", part_name: "전기", amount: 8800000 },
+    { id: 4, store_name: "부산 센텀", part_name: "철거", amount: 3500000 }
   ]
 };
+
+if (LOCAL_PREVIEW_MODE) {
+  previewData.payments.forEach((payment) => {
+    const actor = payment.id === 103 ? null : previewActors.staff;
+    payment.created_by = actor?.id || null;
+    payment.created_by_email = actor?.email || null;
+    payment.row_version = 0;
+  });
+  previewData.payments.find((p) => p.id === 105).attachment_files = {
+    estimate_files: [{ name: "sample-estimate.pdf", size: 1024, url: "#" }],
+    tax_invoice_files: [{ name: "sample-tax-invoice.pdf", size: 1024, url: "#" }]
+  };
+  for (const [id, actor, store, status] of [
+    [106, previewActors.other, "부산 센텀", "신청"],
+    [107, previewActors.admin, "대전 둔산", "신청"],
+    [108, previewActors.staff, "제주 노형", "반려"]
+  ]) previewData.payments.push({ ...structuredClone(previewData.payments.find((p) => p.id === 105)), id, store, status, amount: 700000, net_amount: 700000, estimate_total: 1400000, created_by: actor.id, created_by_email: actor.email, rejection_reason: status === "반려" ? "품목과 증빙을 다시 확인해 주세요." : null });
+  previewData.paymentEvents = [];
+  previewData.lifecycleReady = true;
+}
 
 const furnitureCostItems = [
   { group: "벽장", name: "상부장", baseUnit: 115600, allocationUnit: 57100, quantity: 40, madeAmount: 1260000 },
@@ -253,22 +289,24 @@ const furnitureCostItems = [
 
 const nav = [
   "대시보드",
-  "엑셀 업로드",
-  "공사 시작 접수",
   "결제 신청",
+  "결제 검토·승인",
+  "은행 이체 파일 생성",
+  "공사비 집계",
+  "매장별 공사 관리",
+  "공사 시작 접수",
   "결제 계좌 관리",
   "첨부 파일 보기",
-  "매장별 공사 관리",
+  "엑셀 업로드",
   "진열장 원가 배분",
   "견적서 생성",
   "계약서 생성",
-  "은행 이체 파일 생성",
   "관리자 설정"
 ];
 
 const roleMenus = {
   "전체 관리자": nav,
-  "인테리어 공사실장": ["공사 시작 접수", "결제 신청", "결제 계좌 관리", "첨부 파일 보기", "진열장 원가 배분"]
+  "인테리어 공사실장": ["결제 신청", "공사 시작 접수", "결제 계좌 관리", "첨부 파일 보기", "진열장 원가 배분"]
 };
 
 const roleLabels = {
@@ -297,6 +335,112 @@ let selectedDocumentStore = "";
 let storeManagementFilter = "진행중";
 let dataLoadWarnings = [];
 let editingPaymentId = null;
+let paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
+let reportFilters = { store: "", search: "", start: "", end: "", group: "store", source: "payments" };
+let workspaceSearch = "";
+let paymentPage = 1;
+let paymentScope = "mine";
+let importRows = [];
+let importedDraft = null;
+let lastLoadedAt = null;
+
+function workspaceSearchForm(placeholder = "검색") {
+  return `<form id="workspace-search-form" class="filter-toolbar"><label>검색<input name="search" value="${escapeAttr(workspaceSearch)}" placeholder="${placeholder}"></label><button>검색</button><button type="button" data-workspace-reset>전체 보기</button></form>`;
+}
+
+function paymentFilterToolbar(count, total) {
+  return `<form id="payment-filter-form" class="filter-toolbar"><label>검색<input name="search" value="${escapeAttr(paymentFilters.search)}" placeholder="매장·업체·공사 품목"></label><label>상태<select name="status"><option value="">전체 상태</option>${["신청", "승인", "반려", "취소"].map((s) => `<option ${s === paymentFilters.status ? "selected" : ""}>${s}</option>`).join("")}</select></label><label>지급 구분<select name="tax"><option value="">전체 구분</option><option value="일반 송금" ${paymentFilters.tax === "일반 송금" ? "selected" : ""}>일반 계산서</option><option ${paymentFilters.tax === "사업소득 3.3%" ? "selected" : ""}>사업소득 3.3%</option></select></label><label>신청 시작일<input type="date" name="start" value="${escapeAttr(paymentFilters.start)}"></label><label>신청 종료일<input type="date" name="end" value="${escapeAttr(paymentFilters.end)}"></label><button class="primary">조회</button><button type="button" data-payment-reset>초기화</button><span class="result-count">전체 ${total}건 중 ${count}건</span></form>`;
+}
+
+function canLeaveForm() {
+  return !document.querySelector('.form-panel form[data-dirty="true"]') || window.confirm("작성 중인 내용이 있습니다. 저장하지 않고 화면을 이동할까요?");
+}
+
+function navigateTo(view) {
+  if (!visibleNav().includes(view) || !canLeaveForm()) return;
+  if (view === "결제 검토·승인" && activeView !== view) paymentFilters = { search: "", status: "신청", tax: "", start: "", end: "" };
+  if (view === "결제 신청" && activeView !== view) paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
+  activeView = view;
+  workspaceSearch = "";
+  render();
+  window.scrollTo?.({ top: 0 });
+}
+
+function downloadCSV(name, rows) {
+  const url = URL.createObjectURL(new Blob([csvText(rows)], { type: "text/csv;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = name;
+  document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+}
+
+async function previewImport(file) {
+  if (!file) return;
+  const message = document.querySelector("[data-import-message]");
+  try {
+    if (file.size > 5 * 1024 * 1024) throw new Error("파일은 5MB 이하로 선택해 주세요.");
+    if (!window.XLSX) throw new Error("엑셀 모듈을 준비하지 못했습니다. 새로고침 후 다시 시도해 주세요.");
+    const workbook = window.XLSX.read(await file.arrayBuffer(), { type: "array", sheetRows: 1002 });
+    const rows = window.XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "", raw: false });
+    if (!rows.length) throw new Error("첫 시트에 가져올 행이 없습니다.");
+    if (rows.length > 1000) throw new Error("한 번에 1,000행까지 검토할 수 있습니다.");
+    importRows = validateImportRows(rows, currentData);
+    render();
+  } catch (error) { message.textContent = error.message; message.className = "form-message error"; }
+}
+
+function bindWorkspaceEvents() {
+  document.querySelector("[data-menu-toggle]")?.addEventListener("click", (event) => {
+    const open = document.querySelector("#app").classList.toggle("menu-open");
+    event.currentTarget.setAttribute("aria-expanded", String(open));
+  });
+  document.querySelector("[data-refresh]")?.addEventListener("click", async (event) => {
+    if (!canLeaveForm()) return;
+    event.currentTarget.disabled = true;
+    await refreshDataAndRender("최신 데이터를 다시 불러왔습니다.");
+  });
+  document.querySelector("[data-income-filter]")?.addEventListener("click", () => {
+    if (!canLeaveForm()) return;
+    paymentFilters = { search: "", status: "", tax: "사업소득 3.3%", start: "", end: "" };
+    paymentPage = 1; activeView = activeRole === "전체 관리자" ? "결제 검토·승인" : "결제 신청"; render();
+  });
+  for (const [id, update] of [
+    ["payment-filter-form", (values) => { paymentFilters = values; paymentPage = 1; }],
+    ["report-filter-form", (values) => { reportFilters = values; }],
+    ["workspace-search-form", (values) => { workspaceSearch = values.search || ""; }]
+  ]) document.querySelector(`#${id}`)?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!canLeaveForm()) return;
+    const values = Object.fromEntries(new FormData(event.currentTarget));
+    if (values.start && values.end && values.start > values.end) { window.alert("시작일은 종료일 이전으로 선택해 주세요."); return; }
+    update(values); render();
+  });
+  document.querySelectorAll("[data-payment-page]").forEach((button) => button.addEventListener("click", () => {
+    if (!canLeaveForm()) return; paymentPage = Number(button.dataset.paymentPage); render();
+  }));
+  document.querySelectorAll("[data-payment-scope]").forEach((button) => button.addEventListener("click", () => {
+    if (!canLeaveForm()) return; paymentScope = button.dataset.paymentScope; paymentPage = 1; render();
+  }));
+  document.querySelector("[data-payment-reset]")?.addEventListener("click", () => { if (!canLeaveForm()) return; paymentFilters = { search: "", status: "", tax: "", start: "", end: "" }; paymentPage = 1; render(); });
+  document.querySelector("[data-report-reset]")?.addEventListener("click", () => { reportFilters = { store: "", search: "", start: "", end: "", group: "store", source: "payments" }; render(); });
+  document.querySelector("[data-workspace-reset]")?.addEventListener("click", () => { if (!canLeaveForm()) return; workspaceSearch = ""; render(); });
+  document.querySelector("[data-cost-export]")?.addEventListener("click", () => {
+    const rows = costReportRows(currentData, reportFilters);
+    const legacy = reportFilters.source === "legacy";
+    downloadCSV(`공사비집계_${today()}.csv`, [["그룹", "품목", "건수", ...(legacy ? ["기존 장부 원가"] : ["승인대기", "승인공사비", "송금완료원가", "실지급액", "미송금승인액"])], ...rows.map((r) => [r.name, reportFilters.group === "detail" ? r.item : "", r.count, ...(legacy ? [r.legacy] : [r.pending, r.approved, r.paidCost, r.paidNet, r.unpaid])])]);
+  });
+  document.querySelector("[data-import-file]")?.addEventListener("change", (event) => previewImport(event.currentTarget.files[0]));
+  document.querySelector("[data-import-template]")?.addEventListener("click", () => downloadCSV("결제신청_양식.csv", [["매장", "업체", "공사 품목", "신청 금액", "지급 구분", "메모"], ["등록된 매장명", "등록된 업체명", "전기", 1000000, "일반 송금", ""]]));
+  document.querySelectorAll("[data-import-draft]").forEach((button) => button.addEventListener("click", () => {
+    const draft = importRows[Number(button.dataset.importDraft)];
+    if (!draft || draft.errors.length) return;
+    const vendor = currentData.vendors.find((v) => v.name === draft.vendor);
+    importedDraft = { ...draft, vendor_bank: vendor?.bank || "", vendor_account_number: vendor?.account_number || "", vendor_account_holder: vendor?.account_holder || "" };
+    editingPaymentId = null; activeView = "결제 신청"; render("엑셀 초안을 불러왔습니다. 금액과 증빙을 확인하고 저장해 주세요.");
+  }));
+  document.querySelectorAll(".form-panel form").forEach((form) => {
+    for (const event of ["input", "change"]) form.addEventListener(event, () => { form.dataset.dirty = "true"; });
+  });
+}
 
 const formatKRW = (value) =>
   new Intl.NumberFormat("ko-KR", {
@@ -305,8 +449,11 @@ const formatKRW = (value) =>
     maximumFractionDigits: 0
   }).format(value || 0);
 
-const today = () => new Date().toISOString().slice(0, 10);
-const parseAmount = (value) => Number(String(value).replace(/[^\d]/g, ""));
+const today = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
+const parseAmount = (value) => {
+  const text = String(value ?? "").replace(/[,원\s]/g, "");
+  return /^\d+$/.test(text) ? Number(text) : NaN;
+};
 const numberValue = (value) => Number(value || 0);
 const textLimit = (value, maxLength) => String(value || "").trim().slice(0, maxLength);
 const onlyDigits = (value) => String(value || "").replace(/[^\d]/g, "");
@@ -327,13 +474,13 @@ const safeText = (value, fallback = "-") => {
   const text = value ?? "";
   return escapeAttr(text === "" ? fallback : text);
 };
-const safeFileName = (name) => String(name || "file").replace(/[^\w.\-가-힣]/g, "_");
 
 const statusClass = (status) => {
   const map = {
     승인: "green",
     신청: "amber",
     반려: "red",
+    취소: "gray",
     진행중: "blue",
     완료: "green",
     미착공: "gray",
@@ -349,18 +496,19 @@ const statusClass = (status) => {
 async function loadData() {
   dataLoadWarnings = [];
   if (!supabase) {
-    dataLoadWarnings = [LOCAL_PREVIEW_MODE ? "로컬 미리보기 데이터로 표시 중입니다." : "Supabase 연결 정보가 없어 임시 데이터로 표시 중입니다."];
-    return LOCAL_PREVIEW_MODE ? previewData : fallback;
+    if (!LOCAL_PREVIEW_MODE) throw new Error("서버 연결 설정을 확인해 주세요.");
+    return previewData;
   }
 
-  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems, storeQuotes] = await Promise.all([
-    supabase.from("payments").select("*").order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(500),
-    supabase.from("stores").select("*").order("id", { ascending: true }),
-    supabase.from("vendors").select("*").order("id", { ascending: true }),
-    supabase.from("construction_starts").select("*").order("created_at", { ascending: false }).order("id", { ascending: false }).limit(30),
-    supabase.from("user_roles").select("email, role, created_at").order("email", { ascending: true }),
-    supabase.from("construction_cost_parts").select("part_name").order("part_name", { ascending: true }),
-    supabase.from("store_quotes").select("*").order("updated_at", { ascending: false })
+  const [payments, stores, vendors, constructionStarts, userRoles, paymentItems, storeQuotes, lifecycle] = await Promise.all([
+    readTable(supabase, "payments"),
+    readTable(supabase, "stores"),
+    readTable(supabase, "vendors"),
+    readTable(supabase, "construction_starts"),
+    readTable(supabase, "user_roles"),
+    readTable(supabase, "construction_cost_parts"),
+    readTable(supabase, "store_quotes"),
+    supabase.from("payments").select("created_by,row_version,cancelled_at").limit(1)
   ]);
 
   const requiredSources = [
@@ -387,13 +535,15 @@ async function loadData() {
     : [...new Set([...basePaymentItems, ...paymentItems.data.map((item) => item.part_name).filter(Boolean)])];
 
   return {
-    payments: payments.error ? fallback.payments : payments.data,
-    stores: stores.error ? fallback.stores : stores.data,
-    vendors: vendors.error ? fallback.vendors : vendors.data,
-    constructionStarts: constructionStarts.error ? fallback.constructionStarts : constructionStarts.data,
-    userRoles: userRoles.error ? fallback.userRoles : userRoles.data,
+    payments: [...payments.data].sort((a, b) => String(b.requested_at).localeCompare(String(a.requested_at)) || Number(b.id) - Number(a.id)),
+    stores: stores.data,
+    vendors: vendors.data,
+    constructionStarts: constructionStarts.error ? [] : [...constructionStarts.data].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
+    userRoles: userRoles.error ? [] : userRoles.data,
     paymentItems: uniquePaymentItems,
-    storeQuotes: storeQuotes.error ? fallback.storeQuotes : storeQuotes.data
+    storeQuotes: storeQuotes.error ? [] : storeQuotes.data,
+    costParts: paymentItems.error ? [] : paymentItems.data,
+    lifecycleReady: !lifecycle.error
   };
 }
 
@@ -422,7 +572,8 @@ function renderDataLoadError(error) {
 
 async function refreshDataAndRender(notice = "") {
   try {
-    currentData = await loadData();
+    currentData = await withTimeout(loadData(), "데이터 서버에 연결할 수 없습니다. 서버 상태 또는 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
+    lastLoadedAt = new Date();
     render(notice);
   } catch (error) {
     renderDataLoadError(error);
@@ -442,28 +593,40 @@ async function loadUserRole(user) {
   return roleLabels[data.role] || "인테리어 공사실장";
 }
 
-async function startApp() {
-  if (!supabase) {
-    activeRole = "전체 관리자";
+export async function startApp() {
+  renderStartupLoading();
+  try {
+    if (!supabase) {
+      if (!LOCAL_PREVIEW_MODE) throw new Error("서버 연결 설정을 확인해 주세요.");
+      activeRole = "전체 관리자";
+      currentUser = previewActors.admin;
+      await refreshDataAndRender();
+      return;
+    }
+
+    const { data, error } = await withTimeout(
+      supabase.auth.getSession(),
+      "로그인 서버에 연결할 수 없습니다. 서버 상태 또는 인터넷 연결을 확인한 뒤 다시 시도해 주세요."
+    );
+    if (error) throw error;
+    currentUser = data.session?.user || null;
+
+    if (!currentUser) {
+      renderLogin();
+      return;
+    }
+
+    activeRole = await withTimeout(loadUserRole(currentUser), "사용자 권한을 확인하지 못했습니다. 서버 상태 또는 인터넷 연결을 확인한 뒤 다시 시도해 주세요.");
+    activeView = visibleNav()[0];
     await refreshDataAndRender();
-    return;
+  } catch (error) {
+    renderDataLoadError(error);
   }
-
-  const { data } = await supabase.auth.getSession();
-  currentUser = data.session?.user || null;
-
-  if (!currentUser) {
-    renderLogin();
-    return;
-  }
-
-  activeRole = await loadUserRole(currentUser);
-  activeView = visibleNav()[0];
-  await refreshDataAndRender();
 }
 
 function findDuplicateRisk(data, vendor, amount) {
   return data.payments.find((payment) => {
+    if (!isActivePayment(payment)) return false;
     const sameVendor = payment.vendor.trim() === vendor.trim();
     const diffRate = Math.abs(payment.amount - amount) / Math.max(amount, 1);
     return sameVendor && diffRate <= 0.1;
@@ -472,6 +635,7 @@ function findDuplicateRisk(data, vendor, amount) {
 
 function findSameStoreItemRisk(data, store, paymentItem) {
   return data.payments.find((payment) => {
+    if (!isActivePayment(payment)) return false;
     const sameStore = String(payment.store || "").trim() === store.trim();
     const sameItem = String(payment.payment_item || "").trim() === paymentItem.trim();
     return sameStore && sameItem;
@@ -479,90 +643,15 @@ function findSameStoreItemRisk(data, store, paymentItem) {
 }
 
 async function uploadConstructionFiles(fileList, folder) {
-  const files = Array.from(fileList || []).filter((file) => file.size > 0);
-  if (!files.length) return [];
-
-  if (!supabase) {
-    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
-  }
-
-  const uploaded = [];
-  for (const file of files) {
-    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage
-      .from(CONSTRUCTION_FILE_BUCKET)
-      .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(CONSTRUCTION_FILE_BUCKET).getPublicUrl(path);
-    uploaded.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      path,
-      url: data.publicUrl
-    });
-  }
-  return uploaded;
+  return uploadAttachments(supabase, CONSTRUCTION_FILE_BUCKET, currentUser?.id || "user", fileList, folder);
 }
 
 async function uploadPaymentFiles(fileList, folder) {
-  const files = Array.from(fileList || []).filter((file) => file.size > 0);
-  if (!files.length) return [];
-
-  if (!supabase) {
-    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
-  }
-
-  const uploaded = [];
-  for (const file of files) {
-    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage
-      .from(PAYMENT_FILE_BUCKET)
-      .upload(path, file, { contentType: file.type, upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(PAYMENT_FILE_BUCKET).getPublicUrl(path);
-    uploaded.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      path,
-      url: data.publicUrl
-    });
-  }
-  return uploaded;
+  return uploadAttachments(supabase, PAYMENT_FILE_BUCKET, currentUser?.id || "user", fileList, folder);
 }
 
 async function uploadVendorFiles(fileList, folder) {
-  const files = Array.from(fileList || []).filter((file) => file.size > 0);
-  if (!files.length) return [];
-
-  if (!supabase) {
-    return files.map((file) => ({ name: file.name, type: file.type, size: file.size, path: "", url: "" }));
-  }
-
-  const uploaded = [];
-  for (const file of files) {
-    const path = `${currentUser?.id || "user"}/${folder}/${Date.now()}-${crypto.randomUUID()}-${safeFileName(file.name)}`;
-    const { error } = await supabase.storage
-      .from(VENDOR_FILE_BUCKET)
-      .upload(path, file, { contentType: file.type, upsert: false });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from(VENDOR_FILE_BUCKET).getPublicUrl(path);
-    uploaded.push({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      path,
-      url: data.publicUrl
-    });
-  }
-  return uploaded;
+  return uploadAttachments(supabase, VENDOR_FILE_BUCKET, currentUser?.id || "user", fileList, folder);
 }
 
 async function submitPayment(event) {
@@ -597,19 +686,25 @@ async function submitPayment(event) {
   const estimateFiles = formData.getAll("estimate_files").filter((file) => file.size > 0);
   const taxInvoiceFiles = formData.getAll("tax_invoice_files").filter((file) => file.size > 0);
   const idCardFiles = formData.getAll("id_card_files").filter((file) => file.size > 0);
-  const existingAttachments = editingPayment?.attachment_files || {};
+  const existingAttachments = editingPayment?.attachment_files || importedDraft?.attachment_files || {};
   const hasEstimateFiles = estimateFiles.length || (existingAttachments.estimate_files || []).length;
   const hasTaxInvoiceFiles = taxInvoiceFiles.length || (existingAttachments.tax_invoice_files || []).length;
   const hasIdCardFiles = idCardFiles.length || (existingAttachments.id_card_files || []).length;
 
-  if (paymentId && !editingPayment) {
+  if (paymentId && !canEditPayment(editingPayment, currentUser)) {
     message.textContent = "수정할 수 없는 결제 신청입니다. 이미 승인/반려 처리됐는지 확인해 주세요.";
     message.className = "form-message error";
     return;
   }
 
-  if (!store || !vendor || !paymentItem || !estimateTotal || !amount || !vendorBank || !vendorAccountNumber || !vendorAccountHolder) {
+  if (!store || !vendor || !paymentItem || !Number.isSafeInteger(estimateTotal) || estimateTotal <= 0 || !Number.isSafeInteger(amount) || amount <= 0 || !vendorBank || !vendorAccountNumber || !vendorAccountHolder) {
     message.textContent = "매장명, 업체, 결제 항목, 견적 총액, 신청 금액, 이체 계좌를 모두 입력해 주세요.";
+    message.className = "form-message error";
+    return;
+  }
+
+  if (amount > estimateTotal) {
+    message.textContent = "이번 신청 금액이 견적 총액보다 큽니다. 금액을 확인해 주세요.";
     message.className = "form-message error";
     return;
   }
@@ -682,30 +777,35 @@ async function submitPayment(event) {
     status: "신청",
     requested_at: editingPayment?.requested_at || today()
   };
+  if (!isEditing && importedDraft?.resubmitted_from) paymentPayload.resubmitted_from = importedDraft.resubmitted_from;
 
-  if (!supabase) {
-    fallback.payments = isEditing
-      ? fallback.payments.map((payment) => (payment.id === paymentId ? { ...payment, ...paymentPayload } : payment))
-      : [{ id: Date.now(), ...paymentPayload }, ...fallback.payments];
-  } else {
-    const { error } = isEditing
-      ? await supabase
-          .from("payments")
-          .update(paymentPayload)
-          .eq("id", paymentId)
-          .eq("status", "신청")
-      : await supabase.from("payments").insert(paymentPayload);
-    if (error) {
-      submitButton.disabled = false;
-      submitButton.textContent = isEditing ? "수정 저장" : "검토 요청 생성";
-      message.textContent = `저장 실패: ${error.message}`;
-      message.className = "form-message error";
-      return;
+  try {
+    if (!supabase) {
+      const saved = isEditing
+        ? { ...editingPayment, ...paymentPayload, row_version: (editingPayment.row_version || 0) + 1, updated_at: new Date().toISOString() }
+        : { id: Date.now(), ...paymentPayload, created_by: currentUser.id, created_by_email: currentUser.email, created_at: new Date().toISOString(), row_version: 0 };
+      previewData.payments = isEditing ? previewData.payments.map((p) => p.id === paymentId ? saved : p) : [saved, ...previewData.payments];
+      recordPreviewEvent(editingPayment, saved, isEditing ? "수정" : "신청");
+    } else {
+      const { error, data: savedPayment } = isEditing
+        ? await updatePendingPayment(supabase, editingPayment, paymentPayload)
+        : await supabase.from("payments").insert(paymentPayload);
+      if (error) throw error;
+      if (isEditing && !savedPayment) throw new Error("다른 사용자가 먼저 수정하거나 처리한 신청입니다. 최신 내역을 확인해 주세요.");
     }
+  } catch (error) {
+    submitButton.disabled = false;
+    submitButton.textContent = isEditing ? "수정 저장" : "검토 요청 생성";
+    message.textContent = error.code === "42501"
+      ? "저장 권한 설정 때문에 저장되지 않았습니다. 입력 내용은 유지됩니다. 담당 관리자에게 권한 설정 확인을 요청해 주세요."
+      : `저장 결과 확인 실패: ${error.message} 입력 내용은 유지됩니다. 다시 제출하기 전 신청 내역을 확인해 주세요.`;
+    message.className = "form-message error";
+    return;
   }
 
   form.reset();
   editingPaymentId = null;
+  importedDraft = null;
   await refreshDataAndRender(isEditing ? "결제 신청 수정이 저장됐습니다." : duplicateRisk ? "신청이 저장됐습니다. 중복 의심 건은 결제 검토에서 확인하세요." : "신청이 저장됐습니다.");
 }
 
@@ -771,9 +871,9 @@ async function submitVendor(event) {
   message.textContent = "결제 계좌 정보를 저장하고 있습니다.";
 
   if (!supabase) {
-    fallback.vendors = vendorId
-      ? fallback.vendors.map((item) => (item.id === vendorId ? { ...item, ...vendor } : item))
-      : [{ id: Date.now(), ...vendor, risk: "정상", total: 0 }, ...fallback.vendors];
+    previewData.vendors = vendorId
+      ? previewData.vendors.map((item) => (item.id === vendorId ? { ...item, ...vendor } : item))
+      : [{ id: Date.now(), ...vendor, risk: "정상", total: 0 }, ...previewData.vendors];
   } else {
     const { error } = vendorId
       ? await supabase.from("vendors").update(vendor).eq("id", vendorId)
@@ -819,7 +919,7 @@ async function submitStore(event) {
   message.className = "form-message";
 
   if (!supabase) {
-    fallback.stores = [{ id: Date.now(), ...store }, ...fallback.stores];
+    previewData.stores = [{ id: Date.now(), ...store }, ...previewData.stores];
   } else {
     const { error } = await supabase.from("stores").insert(store);
     if (error) {
@@ -893,7 +993,7 @@ async function submitConstructionStart(event) {
   message.textContent = "공사 시작 정보를 저장하고 있습니다.";
 
   if (!supabase) {
-    fallback.constructionStarts = [{ id: Date.now(), created_at: new Date().toISOString(), ...request }, ...fallback.constructionStarts];
+    previewData.constructionStarts = [{ id: Date.now(), created_at: new Date().toISOString(), ...request }, ...previewData.constructionStarts];
   } else {
     const { error } = await supabase.from("construction_starts").insert(request);
     if (error) {
@@ -910,70 +1010,100 @@ async function submitConstructionStart(event) {
   await refreshDataAndRender("공사 시작 정보가 저장됐습니다. 결제 신청 매장 검색에도 반영됐습니다.");
 }
 
-async function updatePaymentStatus(paymentId, status) {
-  if (!paymentId || !["승인", "반려"].includes(status)) return;
+function recordPreviewEvent(before, after, type) {
+  previewData.paymentEvents.push({ id: Date.now() + Math.random(), payment_id: after.id, event_type: type, actor_id: currentUser.id, actor_email: currentUser.email, occurred_at: new Date().toISOString(), before_data: before ? structuredClone(before) : null, after_data: structuredClone(after) });
+}
 
-  if (!supabase) {
-    fallback.payments = fallback.payments.map((payment) =>
-      payment.id === paymentId ? { ...payment, status } : payment
-    );
-  } else {
-    const { data, error } = await supabase
-      .from("payments")
-      .update({ status })
-      .eq("id", paymentId)
-      .eq("status", "신청")
-      .select("id")
-      .maybeSingle();
+function transitionPreviewPayment(original, status, reason) {
+  const current = previewData.payments.find((p) => p.id === original.id);
+  if (!current || current.status !== "신청" || current.row_version !== original.row_version) throw new Error("다른 사용자가 변경한 신청입니다. 최신 내역을 다시 확인해 주세요.");
+  const changed = { ...current, status, row_version: current.row_version + 1, updated_at: new Date().toISOString() };
+  if (status === "취소") Object.assign(changed, { cancel_reason: reason, cancelled_at: new Date().toISOString(), cancelled_by: currentUser.id });
+  else Object.assign(changed, { reviewed_at: new Date().toISOString(), reviewed_by: currentUser.id, ...(status === "반려" ? { rejection_reason: reason } : {}) });
+  previewData.payments = previewData.payments.map((p) => p.id === original.id ? changed : p);
+  recordPreviewEvent(current, changed, status);
+}
 
-    if (error) {
-      render(`상태 변경 실패: ${error.message}`);
-      return;
-    }
-
-    if (!data) {
-      if (editingPaymentId === paymentId) editingPaymentId = null;
-      activeView = "결제 신청";
-      await refreshDataAndRender("상태 변경 실패: 이미 처리됐거나 권한이 없습니다. 새로고침 후 다시 확인해 주세요.");
-      return;
-    }
+async function updatePaymentStatus(original, status, reason = "") {
+  if (!currentData.lifecycleReady) throw new Error("수정·취소 및 승인 권한 변경을 DB에 적용한 뒤 사용할 수 있습니다.");
+  if (status === "취소" ? !canEditPayment(original, currentUser) : !canReviewPayment(original, activeRole)) throw new Error("이 신청을 처리할 권한이 없습니다.");
+  if (["취소", "반려"].includes(status) && !reason.trim()) throw new Error("처리 사유를 입력해 주세요.");
+  if (!supabase) transitionPreviewPayment(original, status, reason);
+  else {
+    const result = await changePendingStatus(supabase, original, status, reason);
+    if (result.error) throw result.error;
+    if (!result.data) throw new Error("다른 사용자가 수정 또는 승인한 신청입니다. 최신 내역을 다시 확인해 주세요.");
   }
+  if (editingPaymentId === original.id) editingPaymentId = null;
+  await refreshDataAndRender(status === "취소" ? "신청을 취소했습니다. 금액·증빙과 취소 이력은 보존됩니다." : `결제 신청이 ${status} 처리됐습니다.`);
+}
 
-  if (editingPaymentId === paymentId) editingPaymentId = null;
-  activeView = "결제 신청";
-  await refreshDataAndRender(`결제 신청이 ${status} 처리됐습니다.`);
+function showPaymentDecision(paymentId, status) {
+  const payment = currentData.payments.find((p) => p.id === paymentId);
+  if (!payment || !canLeaveForm()) return;
+  const original = structuredClone(payment);
+  const dialog = document.createElement("dialog");
+  dialog.className = "workflow-dialog";
+  dialog.innerHTML = `<form><span class="eyebrow">PAYMENT REVIEW</span><h2>${status === "취소" ? "신청 취소" : `결제 ${status}`}</h2><p>${safeText(payment.store)} · ${safeText(payment.vendor)} · ${safeText(payment.payment_item)}</p><div class="decision-amount"><span>신청 금액</span><strong>${formatKRW(payment.amount)}</strong><span>실지급액 ${formatKRW(payment.net_amount ?? payment.amount)}</span></div>${status === "승인" ? `<p>승인 후에는 신청 금액과 증빙을 수정하거나 취소할 수 없습니다.</p>` : `<label>${status === "취소" ? "취소" : "반려"} 사유<textarea name="reason" required maxlength="500" rows="3" placeholder="다음 확인자가 이해할 수 있도록 작성해 주세요."></textarea></label><p>${status === "취소" ? "원본 기록과 첨부파일은 삭제되지 않습니다." : "입력자가 사유를 확인하고 새 신청을 작성할 수 있습니다."}</p>`}<p role="status" data-decision-error></p><div class="dialog-actions"><button type="button" data-dialog-close>돌아가기</button><button class="primary" type="submit">${status === "취소" ? "신청 취소 확정" : `${status} 확정`}</button></div></form>`;
+  document.body.appendChild(dialog);
+  dialog.querySelector("[data-dialog-close]").addEventListener("click", () => { dialog.close(); dialog.remove(); });
+  dialog.addEventListener("cancel", () => dialog.remove());
+  dialog.querySelector("form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = dialog.querySelector("button[type='submit']"); button.disabled = true;
+    try {
+      await updatePaymentStatus(original, status, String(new FormData(event.currentTarget).get("reason") || "").trim());
+      dialog.close(); dialog.remove();
+    } catch (error) { dialog.querySelector("[data-decision-error]").textContent = error.message; button.disabled = false; }
+  });
+  dialog.showModal();
+}
+
+function paymentHistoryChangeText(event) {
+  if (!event.before_data) return `신청금액 ${formatKRW(event.after_data.amount)}`;
+  const labels = { store: "매장", vendor: "업체", payment_item: "공사 품목", amount: "신청 금액", estimate_total: "견적 총액", payment_type: "결제 방식", vendor_bank: "은행", vendor_account_number: "계좌", vendor_account_holder: "예금주", tax_type: "지급 구분", withholding_amount: "원천징수액", net_amount: "실지급액", memo: "메모" };
+  const money = new Set(["amount", "estimate_total", "withholding_amount", "net_amount"]);
+  const changes = Object.entries(labels).filter(([key]) => event.before_data[key] !== event.after_data[key]).map(([key, label]) => `${label}: ${money.has(key) ? formatKRW(event.before_data[key]) : safeText(event.before_data[key])} → ${money.has(key) ? formatKRW(event.after_data[key]) : safeText(event.after_data[key])}`);
+  if (JSON.stringify(event.before_data.attachment_files) !== JSON.stringify(event.after_data.attachment_files)) changes.push("첨부 증빙 변경 · 변경 전 정보도 이력 보존");
+  return changes.length ? changes.join("<br>") : `신청금액 ${formatKRW(event.after_data.amount)}`;
+}
+
+async function showPaymentHistory(paymentId) {
+  const dialog = document.createElement("dialog"); dialog.className = "workflow-dialog history-dialog";
+  dialog.innerHTML = `<h2>신청 변경 이력</h2><div data-history-content role="status">이력을 불러오고 있습니다.</div><button data-dialog-close>닫기</button>`;
+  document.body.appendChild(dialog); dialog.showModal();
+  dialog.querySelector("[data-dialog-close]").addEventListener("click", () => { dialog.close(); dialog.remove(); });
+  dialog.addEventListener("cancel", () => dialog.remove());
+  try {
+    if (!currentData.lifecycleReady) throw new Error("이력 보존 기능 적용 이전의 기록입니다. 과거 이력을 임의로 생성하지 않습니다.");
+    const result = supabase ? await supabase.from("payment_events").select("*").eq("payment_id", paymentId).order("id", { ascending: false }) : { data: previewData.paymentEvents.filter((e) => e.payment_id === paymentId).slice().reverse() };
+    if (result.error) throw result.error;
+    dialog.querySelector("[data-history-content]").innerHTML = result.data.length ? result.data.map((e) => `<article class="history-entry"><strong>${safeText(e.event_type)}</strong><small>${safeText(e.actor_email)} · ${safeText(new Date(e.occurred_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }))}</small><p>${paymentHistoryChangeText(e)}</p>${e.after_data.cancel_reason && e.event_type === "취소" ? `<p>취소 사유: ${safeText(e.after_data.cancel_reason)}</p>` : ""}${e.after_data.rejection_reason && e.event_type === "반려" ? `<p>반려 사유: ${safeText(e.after_data.rejection_reason)}</p>` : ""}</article>`).join("") : "보존된 변경 이력이 없습니다. 기능 적용 이전의 이력은 생성하지 않습니다.";
+  } catch (error) { dialog.querySelector("[data-history-content]").textContent = error.message; }
 }
 
 async function approveSelectedPayments(paymentIds) {
-  const ids = [...new Set(paymentIds.map(Number).filter(Boolean))];
-  if (!ids.length) {
+  if (activeRole !== "전체 관리자") return;
+  const selected = currentData.payments.filter((p) => paymentIds.map(Number).includes(p.id) && canReviewPayment(p, activeRole));
+  if (!selected.length) {
     render("승인할 결제 신청을 먼저 선택해 주세요.");
     return;
   }
 
-  if (!supabase) {
-    fallback.payments = fallback.payments.map((payment) =>
-      ids.includes(payment.id) && payment.status === "신청" ? { ...payment, status: "승인" } : payment
-    );
-    activeView = "결제 신청";
-    await refreshDataAndRender(`${ids.length}건을 승인 처리했습니다.`);
-    return;
+  if (!currentData.lifecycleReady) { render("DB 권한 변경 적용 후 사용할 수 있습니다."); return; }
+  if (!window.confirm(`${selected.length}건, 신청액 합계 ${formatKRW(selected.reduce((n, p) => n + Number(p.amount), 0))}을 승인할까요? 승인 후에는 수정·취소할 수 없습니다.`)) return;
+  let approved = 0;
+  for (const payment of selected) {
+    try {
+      if (!supabase) transitionPreviewPayment(payment, "승인", "");
+      else {
+        const result = await changePendingStatus(supabase, payment, "승인");
+        if (result.error || !result.data) continue;
+      }
+      approved++;
+    } catch { /* Report skipped rows without pretending all selected rows succeeded. */ }
   }
-
-  const { data, error } = await supabase
-    .from("payments")
-    .update({ status: "승인" })
-    .in("id", ids)
-    .eq("status", "신청")
-    .select("id");
-
-  if (error) {
-    render(`선택 승인 실패: ${error.message}`);
-    return;
-  }
-
-  activeView = "결제 신청";
-  await refreshDataAndRender(`${data?.length || 0}건을 승인 처리했습니다. 이제 엑셀 다운로드를 누르면 승인된 건이 내려갑니다.`);
+  await refreshDataAndRender(`${approved}건 승인${approved < selected.length ? ` · ${selected.length - approved}건은 내용 변경 또는 권한 문제로 제외됐습니다. 다시 검토해 주세요.` : " · 은행 이체 메뉴에서 지급 준비를 이어가세요."}`);
 }
 
 async function saveStoreQuote(storeName, status) {
@@ -1002,9 +1132,9 @@ async function saveStoreQuote(storeName, status) {
   }
 
   if (!supabase) {
-    fallback.storeQuotes = [
+    previewData.storeQuotes = [
       { id: existing.id || Date.now(), ...quote },
-      ...fallback.storeQuotes.filter((item) => item.store_name !== storeName)
+      ...previewData.storeQuotes.filter((item) => item.store_name !== storeName)
     ];
   } else {
     const { error } = await supabase
@@ -1063,7 +1193,7 @@ function paymentTransferStatus(payment) {
 }
 
 function isTransferCompleted(payment) {
-  return ["송금완료", "이체완료"].includes(paymentTransferStatus(payment));
+  return transferCompleted(payment);
 }
 
 function transferCandidatePayments(data) {
@@ -1101,7 +1231,7 @@ function bankTransferRecord(data, payment) {
   const bank = payment.vendor_bank || vendor.bank;
   const account = payment.vendor_account_number || vendor.account_number;
   const holder = payment.vendor_account_holder || vendor.account_holder || payment.vendor;
-  const amount = Number(payment.net_amount || payment.amount || 0);
+  const amount = Number(payment.net_amount ?? payment.amount ?? 0);
   const memo = `${payment.store || ""} ${payment.payment_item || ""}`.trim();
 
   return {
@@ -1160,6 +1290,7 @@ function bankTransferRecords(data, filters = {}) {
 }
 
 async function updateTransferExportStatus(records, batchId) {
+  if (activeRole !== "전체 관리자") return { error: new Error("관리자만 이체 상태를 처리할 수 있습니다.") };
   const ids = [...new Set(records.map((record) => Number(record.payment.id)).filter(Boolean))];
   if (!ids.length) return { updated: 0 };
 
@@ -1171,8 +1302,8 @@ async function updateTransferExportStatus(records, batchId) {
   };
 
   if (!supabase) {
-    fallback.payments = fallback.payments.map((payment) =>
-      ids.includes(payment.id) && payment.status === "승인" ? { ...payment, ...transferPayload } : payment
+    previewData.payments = previewData.payments.map((payment) =>
+      ids.includes(payment.id) && payment.status === "승인" && !isTransferCompleted(payment) ? { ...payment, ...transferPayload } : payment
     );
     currentData = await loadData();
     return { updated: ids.length };
@@ -1183,6 +1314,8 @@ async function updateTransferExportStatus(records, batchId) {
     .update(transferPayload)
     .in("id", ids)
     .eq("status", "승인")
+    .in("transfer_status", ["미작성", "파일생성"])
+    .is("transferred_at", null)
     .select("id");
 
   if (error) return { error };
@@ -1190,6 +1323,7 @@ async function updateTransferExportStatus(records, batchId) {
 }
 
 async function markSelectedTransfersCompleted(paymentIds) {
+  if (activeRole !== "전체 관리자") return;
   const ids = [...new Set(paymentIds.map(Number).filter(Boolean))];
   if (!ids.length) {
     render("송금완료 처리할 이체건을 먼저 선택해 주세요.");
@@ -1205,8 +1339,8 @@ async function markSelectedTransfersCompleted(paymentIds) {
   };
 
   if (!supabase) {
-    fallback.payments = fallback.payments.map((payment) =>
-      ids.includes(payment.id) && payment.status === "승인" ? { ...payment, ...transferPayload } : payment
+    previewData.payments = previewData.payments.map((payment) =>
+      ids.includes(payment.id) && payment.status === "승인" && !isTransferCompleted(payment) ? { ...payment, ...transferPayload } : payment
     );
     activeView = "은행 이체 파일 생성";
     await refreshDataAndRender(`${ids.length}건을 송금완료 처리했습니다.`);
@@ -1218,6 +1352,8 @@ async function markSelectedTransfersCompleted(paymentIds) {
     .update(transferPayload)
     .in("id", ids)
     .eq("status", "승인")
+    .in("transfer_status", ["미작성", "파일생성"])
+    .is("transferred_at", null)
     .select("id");
 
   if (error) {
@@ -1230,6 +1366,7 @@ async function markSelectedTransfersCompleted(paymentIds) {
 }
 
 async function downloadBankTransferFile(data, filters = {}) {
+  if (activeRole !== "전체 관리자") return;
   const hasSelectedScope = Array.isArray(filters.selectedIds) && filters.selectedIds.length > 0;
   const hasDateScope = Boolean(filters.startDate || filters.endDate);
   if (!hasSelectedScope && !hasDateScope) {
@@ -1237,7 +1374,9 @@ async function downloadBankTransferFile(data, filters = {}) {
     return;
   }
 
-  const readyRecords = bankTransferRecords(data, filters).filter((record) => record.ready);
+  // Re-read just before generating an export to exclude payments completed by another user.
+  const latest = supabase ? await withTimeout(loadData(), "최신 이체 내역을 확인하지 못했습니다. 다시 조회해 주세요.") : data;
+  const readyRecords = bankTransferRecords(latest, filters).filter((record) => record.ready);
   if (!readyRecords.length) {
     render("다운로드할 승인 완료 건이 없거나, 업체 계좌정보가 비어 있습니다.");
     return;
@@ -1309,6 +1448,8 @@ function syncPaymentAmount(form) {
 }
 
 function syncTaxPreview(form) {
+  const incomeNotice = form.querySelector("[data-income-notice]");
+  if (incomeNotice) incomeNotice.hidden = form.querySelector("[name='tax_type']")?.value !== "사업소득 3.3%";
   const amount = parseAmount(form.querySelector("[name='amount']")?.value);
   const taxType = form.querySelector("[name='tax_type']")?.value || "일반 송금";
   const withholdingAmount = Math.round(amount * withholdingRate(taxType));
@@ -1345,37 +1486,12 @@ function fillVendorForm(vendorId) {
   form.querySelector("[data-vendor-message]").textContent = "기존 계좌 정보를 수정 중입니다. 새 파일을 첨부하면 기존 파일에 추가됩니다.";
 }
 
-function kpiData(data) {
-  const completed = data.stores.filter((store) => store.status === "완료").length;
-  const active = data.stores.filter((store) => store.status === "진행중").length;
-  const documentTargets = data.stores.filter((store) => store.document_required).length;
-  const approved = data.payments
-    .filter((payment) => payment.status === "승인")
-    .reduce((sum, payment) => sum + payment.amount, 0);
-  const spent = data.stores.reduce((sum, store) => sum + Number(store.spent || 0), 0);
-  const pending = data.payments.filter((payment) => payment.status === "신청").length;
-  const directStores = data.stores.filter((store) => String(store.name || "").includes("직영점")).length;
-  const totalArea = data.stores.reduce((sum, store) => sum + Number(store.area || 0), 0);
-  const average = Math.round(spent / Math.max(totalArea, 1));
-
-  return [
-    ["완료된 매장", `${completed}개`, "엑셀 공사 상태 기준"],
-    ["진행중인 매장", `${active}개`, "시공 또는 비용 검수 중"],
-    ["전체 공사비", formatKRW(spent), "엑셀 합계 기준"],
-    ["문서 생성 대상", `${documentTargets}개`, "강남압구정 행부터 아래"],
-    ["대기중인 결제", `${pending}건`, "승인 전 검토 필요"],
-    ["직영점", `${directStores}개`, "지점명 기준"],
-    ["승인된 결제", formatKRW(approved), "지급 승인 완료"],
-    ["평균 평당 원가", formatKRW(average), "엑셀 합계/평수 기준"]
-  ];
-}
-
 function table(headers, rows) {
   return `
     <div class="table-wrap">
       <table>
         <thead><tr>${headers.map((head) => `<th>${head}</th>`).join("")}</tr></thead>
-        <tbody>${rows.join("")}</tbody>
+        <tbody>${rows.length ? rows.join("") : `<tr><td colspan="${headers.length}" class="empty">조회된 내역이 없습니다.</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -1396,7 +1512,7 @@ function paymentRows(data) {
         <td class="money">${formatKRW(payment.amount)}</td>
         <td>${safeText(payment.tax_type, "일반 송금")}</td>
         <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
-        <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
+        <td class="money">${formatKRW(payment.net_amount ?? payment.amount)}</td>
         <td>${paymentAttachmentSummary(payment)}</td>
         <td>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</td>
         <td><span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span></td>
@@ -1420,7 +1536,7 @@ function paymentReviewRows(data, canApprove = false) {
         <td class="money">${formatKRW(payment.amount)}</td>
         <td>${safeText(payment.tax_type, "일반 송금")}</td>
         <td class="money">${formatKRW(payment.withholding_amount || 0)}</td>
-        <td class="money">${formatKRW(payment.net_amount || payment.amount)}</td>
+        <td class="money">${formatKRW(payment.net_amount ?? payment.amount)}</td>
         <td>${paymentAttachmentSummary(payment)}</td>
         <td>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</td>
         <td><span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span></td>
@@ -1453,27 +1569,38 @@ function paymentReviewCards(data, canApprove = false) {
       ${data.payments
         .map((payment) => {
           const canSelectPending = payment.status === "신청" && canApprove;
+          const editable = currentData.lifecycleReady && canEditPayment(payment, currentUser);
+          const copyable = currentData.lifecycleReady && canResubmitPayment(payment, currentUser);
+          const owned = Boolean(payment.created_by && payment.created_by === currentUser?.id);
 
           return `
-            <details class="payment-review-card">
-              <summary>
+            <article class="payment-review-card" data-request-id="${escapeAttr(payment.id)}">
+              <div class="payment-card-heading">
                 <div class="payment-summary-main">
                   ${
                     canSelectPending
-                      ? `<input type="checkbox" class="payment-select" value="${payment.id}" aria-label="${escapeAttr(payment.store)} 선택" />`
+                      ? `<input type="checkbox" class="payment-select" value="${payment.id}" ${currentData.lifecycleReady ? "" : "disabled"} aria-label="${escapeAttr(payment.store)} 선택" />`
                       : ""
                   }
                   <div>
                     <strong>${safeText(payment.store)}</strong>
                     <span>${safeText(payment.vendor)}</span>
+                    <small class="request-author">${safeText(payment.created_by_email || "입력자 미기록 · 기존 내역")}${owned ? " · 내 신청" : ""}</small>
                   </div>
                 </div>
                 <div class="payment-summary-meta">
                   <span>${safeText(payment.payment_item)}</span>
-                  <strong>${formatKRW(payment.net_amount || payment.amount)}</strong>
+                  <strong>${formatKRW(payment.net_amount ?? payment.amount)}</strong>
+                  ${incomeBadge(payment)}
                   <span class="badge ${statusClass(payment.status)}">${safeText(payment.status)}</span>
                 </div>
-              </summary>
+              </div>
+              <div class="request-quick-actions">
+                <span>${payment.status === "승인" ? "승인 완료 · 수정·취소 잠금" : payment.status === "취소" ? "입력자 취소 · 원본 보존" : payment.status === "반려" ? "관리자 반려 · 사유 확인" : editable ? "승인 전 수정·취소 가능" : canSelectPending ? "내용 확인 후 승인·반려" : "입력자 본인만 수정·취소 가능"}</span>
+                <div>${editable ? `<button data-payment-edit="${payment.id}">수정</button><button class="danger-outline" data-payment-id="${payment.id}" data-payment-status="취소">신청 취소</button>` : ""}${canSelectPending && currentData.lifecycleReady ? `<button data-payment-id="${payment.id}" data-payment-status="반려">반려</button><button class="primary" data-payment-id="${payment.id}" data-payment-status="승인">승인</button>` : ""}${copyable ? `<button data-payment-resubmit="${payment.id}">수정 후 새 신청</button>` : ""}${owned || activeRole === "전체 관리자" ? `<button data-payment-history="${payment.id}">변경 이력</button>` : ""}</div>
+              </div>
+              ${payment.cancel_reason ? `<p class="request-reason">취소 사유: ${safeText(payment.cancel_reason)}</p>` : payment.rejection_reason ? `<p class="request-reason">반려 사유: ${safeText(payment.rejection_reason)}</p>` : ""}
+              <details class="request-details"><summary>상세 내역·증빙 보기</summary>
               <div class="payment-detail-grid">
                 <div><span>입금은행</span><strong>${safeText(payment.vendor_bank)}</strong></div>
                 <div><span>입금계좌</span><strong>${safeText(payment.vendor_account_number)}</strong></div>
@@ -1483,21 +1610,15 @@ function paymentReviewCards(data, canApprove = false) {
                 <div><span>이번 신청액</span><strong>${formatKRW(payment.amount)}</strong></div>
                 <div><span>지급 유형</span><strong>${safeText(payment.tax_type, "일반 송금")}</strong></div>
                 <div><span>원천징수</span><strong>${formatKRW(payment.withholding_amount || 0)}</strong></div>
-                <div><span>실지급액</span><strong>${formatKRW(payment.net_amount || payment.amount)}</strong></div>
+                <div><span>실지급액</span><strong>${formatKRW(payment.net_amount ?? payment.amount)}</strong></div>
                 <div><span>첨부 자료</span><strong>${paymentAttachmentSummary(payment)}</strong></div>
                 <div><span>견적서 반영</span><strong>${safeText(payment.estimate_group_mode, "매장별 항목 합산")}</strong></div>
                 <div><span>신청일</span><strong>${safeText(payment.requested_at)}</strong></div>
+                ${payment.resubmitted_from ? `<div><span>새 신청의 원본 기록</span><strong>#${safeText(payment.resubmitted_from)} · 원본 별도 보존</strong></div>` : ""}
+                ${isBusinessIncome(payment) ? `<div class="income-detail"><span>신고 알림</span><strong>사업소득 3.3% · 아마란스 신고 확인</strong><small>송금완료와 신고완료는 별도입니다.</small></div>` : ""}
               </div>
-              <div class="payment-detail-actions">
-                ${
-                  payment.status === "신청"
-                    ? `<button data-payment-edit="${escapeAttr(payment.id)}">수정</button>
-                       <button data-payment-id="${escapeAttr(payment.id)}" data-payment-status="반려">신청 취소</button>
-                       ${canApprove ? `<button class="primary" data-payment-id="${escapeAttr(payment.id)}" data-payment-status="승인">승인</button>` : ""}`
-                      : `<span class="muted">처리 완료</span>`
-                }
-              </div>
-            </details>`;
+              </details>
+            </article>`;
         })
         .join("")}
     </div>
@@ -1516,7 +1637,7 @@ function bankTransferRows(records, selectable = false) {
         <td>${safeText(record.payment.requested_at)}</td>
         <td>${safeText(record.payment.store)}</td>
         <td>${safeText(record.payment.vendor)}</td>
-        <td>${safeText(record.payment.payment_item)}</td>
+        <td>${safeText(record.payment.payment_item)}${incomeBadge(record.payment)}</td>
         <td>${safeText(record.bank)}</td>
         <td>${safeText(record.account)}</td>
         <td>${safeText(record.holder)}</td>
@@ -1651,7 +1772,7 @@ function documentLineItems(data, storeName, marginRate) {
 }
 
 function storeManagementRows(data, filter = "진행중") {
-  return managedStoreNamesByStatus(data, filter).map((storeName) => {
+  return managedStoreNamesByStatus(data, filter).filter((storeName) => matchesSearch(storeName, workspaceSearch)).map((storeName) => {
     const quote = quoteForStore(data, storeName);
     const marginRate = quote.margin_rate ?? 35;
     const amounts = quoteAmounts(data, storeName, marginRate);
@@ -1772,7 +1893,7 @@ function attachmentRows(data) {
     ];
   }
 
-  return rows.map(
+  return rows.filter((row) => matchesSearch(`${row.source} ${row.owner} ${row.category} ${row.name}`, workspaceSearch)).map(
     (row) => `
       <tr>
         <td>${safeText(row.source)}</td>
@@ -1787,7 +1908,7 @@ function attachmentRows(data) {
 }
 
 function constructionStartRows(data) {
-  return data.constructionStarts.map(
+  return data.constructionStarts.filter((row) => matchesSearch(`${row.store_name} ${row.special_notes || ""}`, workspaceSearch)).map(
     (item) => `
       <tr>
         <td>${safeText(item.store_name)}</td>
@@ -1872,8 +1993,8 @@ function selectAttr(value, currentValue) {
 }
 
 function paymentForm() {
-  const editingPayment = currentData.payments.find((payment) => payment.id === editingPaymentId && payment.status === "신청");
-  const isEditing = Boolean(editingPayment);
+  const editingPayment = currentData.payments.find((payment) => payment.id === editingPaymentId && canEditPayment(payment, currentUser)) || importedDraft;
+  const isEditing = Boolean(editingPayment?.id);
   const valueFor = (field, fallbackValue = "") => escapeAttr(editingPayment?.[field] ?? fallbackValue);
 
   return `
@@ -1882,7 +2003,7 @@ function paymentForm() {
         <h2>${isEditing ? "결제 신청 수정" : "결제 신청 입력"}</h2>
         ${isEditing ? `<button data-payment-edit-cancel>수정 취소</button>` : ""}
       </div>
-      <div class="notice">${isEditing ? "승인 전 신청 건만 수정할 수 있습니다. 기존 첨부파일은 유지되고 새 파일을 추가할 수 있습니다." : "등록된 업체를 선택하면 계좌 정보와 결제 신청이 같은 기준으로 연결됩니다."}</div>
+      <div class="notice">${isEditing ? "본인이 작성한 승인 전 신청만 수정할 수 있습니다. 기존 첨부는 유지되며 변경 이력이 남습니다." : importedDraft?.resubmitted_from ? "기존 신청은 보존하고 새 신청을 작성합니다. 금액과 증빙을 다시 확인해 주세요." : "매장·품목별로 신청하세요. 승인 전에는 내 신청을 수정하거나 취소할 수 있습니다."}</div>
       <form id="payment-form">
         <input type="hidden" name="payment_id" value="${isEditing ? editingPayment.id : ""}" />
         <label>매장
@@ -1919,12 +2040,13 @@ function paymentForm() {
           </select>
         </label>
         <label>이번 신청 금액<input name="amount" value="${valueFor("amount")}" inputmode="numeric" placeholder="예: 5000000" autocomplete="off" /></label>
-        <label>지급 유형
+        <label>계산서 / 사업소득 구분
           <select name="tax_type">
-            <option value="일반 송금" ${selectAttr("일반 송금", editingPayment?.tax_type || "일반 송금")}>일반 송금</option>
+            <option value="일반 송금" ${selectAttr("일반 송금", editingPayment?.tax_type || "일반 송금")}>일반 계산서 건</option>
             <option value="사업소득 3.3%" ${selectAttr("사업소득 3.3%", editingPayment?.tax_type)}>사업소득 3.3%</option>
           </select>
         </label>
+        <div class="income-form-notice wide" data-income-notice hidden><strong>사업소득 3.3% · 아마란스 신고 확인</strong><span>이 결제는 사업소득 지급 건입니다. 신고서는 아마란스에서 별도로 작성해 주세요.</span></div>
         <div class="calc-box">
           <span>원천징수액 <strong data-withholding-preview>0원</strong></span>
           <span>실지급액 <strong data-net-preview>0원</strong></span>
@@ -1932,6 +2054,7 @@ function paymentForm() {
         <label>견적서 첨부<input name="estimate_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>세금계산서 첨부<input name="tax_invoice_files" type="file" accept="image/*,application/pdf" multiple /></label>
         <label>주민등록증 첨부<input name="id_card_files" type="file" accept="image/*,application/pdf" multiple /></label>
+        ${(editingPayment?.attachment_files && Object.values(editingPayment.attachment_files).some((files) => Array.isArray(files) && files.length)) ? `<div class="notice wide"><strong>유지되는 기존 증빙</strong>${paymentAttachmentSummary(editingPayment)}</div>` : ""}
         <label>메모<input name="memo" value="${valueFor("memo")}" placeholder="예: 진열장 선금, 잔금, 추가 요청사항" autocomplete="off" /></label>
         <p class="form-message" data-form-message></p>
         <button class="primary wide" type="submit">${isEditing ? "수정 저장" : "검토 요청 생성"}</button>
@@ -2018,79 +2141,50 @@ function constructionStartForm() {
 }
 
 function dashboardView(data) {
-  return `
-    <section class="kpis">
-      ${kpiData(data)
-        .map(
-          ([label, value, helper]) => `
-            <article class="kpi">
-              <span>${label}</span>
-              <strong>${value}</strong>
-              <small>${helper}</small>
-            </article>`
-        )
-        .join("")}
-    </section>
-
-    <section class="grid two">
-      <article class="panel">
-        <div class="panel-head">
-          <h2>최근 결제 신청</h2>
-          <button data-view-link="결제 신청">전체 보기</button>
-        </div>
-        ${table(["매장", "업체", "입금은행", "입금계좌", "예금주", "항목", "견적 총액", "결제 방식", "이번 신청액", "지급 유형", "원천징수", "실지급액", "첨부 자료", "견적서 반영", "상태", "신청일"], paymentRows(data))}
-      </article>
-
-      <article class="panel">
-        <div class="panel-head">
-          <h2>매장 공사 현황</h2>
-          <button data-view-link="매장별 공사 관리">관리</button>
-        </div>
-        ${table(["지역", "매장", "진열장", "평수", "공사비 합계", "상태", "문서"], storeRows(data))}
-      </article>
-    </section>
-
-    <section class="grid lower">
-      <article class="panel">
-        <div class="panel-head">
-          <h2>주요 협력업체</h2>
-          <button data-view-link="결제 계좌 관리">계좌 추가</button>
-        </div>
-        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "첨부", "상태", "수정"], vendorRows(data))}
-      </article>
-      ${paymentForm()}
-    </section>
-  `;
+  return dashboard(data);
 }
 
 function paymentView(data) {
-  const canDownloadTransfer = visibleNav().includes("은행 이체 파일 생성");
-  const pendingCount = data.payments.filter((payment) => payment.status === "신청").length;
+  const reviewing = activeView === "결제 검토·승인";
+  const canDownloadTransfer = reviewing && activeRole === "전체 관리자";
+  const scope = !reviewing && paymentScope === "mine" ? data.payments.filter((p) => currentUser?.id && p.created_by === currentUser.id) : data.payments;
+  const pendingCount = scope.filter((payment) => payment.status === "신청").length;
+  const filtered = filterPayments(scope, paymentFilters);
+  const pages = Math.max(1, Math.ceil(filtered.length / 25));
+  paymentPage = Math.min(paymentPage, pages);
+  const pageData = { ...data, payments: filtered.slice((paymentPage - 1) * 25, paymentPage * 25) };
 
   return `
-    <section class="grid two">
-      ${paymentForm()}
-      <article class="panel">
+    <section class="page-intro"><span class="eyebrow">${reviewing ? "REVIEW → APPROVE → TRANSFER" : "CREATE → CHECK → CORRECT"}</span><h2>${reviewing ? "입력된 내용을 검토하고, 승인하세요." : "작성한 신청은 승인 전에 바로잡으세요."}</h2><p>${reviewing ? "품목·금액·계좌·증빙을 확인하세요. 승인 후에는 원본을 잠그고 이체 단계로 넘깁니다." : "내 신청에서 수정·취소할 수 있습니다. 취소한 기록도 금액·증빙과 함께 남습니다."}</p></section>
+    ${reviewing ? "" : `<div class="request-jump-links"><a href="#payment-form">신청서 작성</a><a href="#payment-list">내 신청 수정·취소 보기 ↓</a></div>`}
+    ${data.lifecycleReady ? "" : `<div class="data-alert">입력자별 수정·취소 기능은 DB 권한 변경 적용 후 활성화됩니다. 기존 기록은 그대로 조회하며 입력자를 임의로 배정하지 않습니다.</div>`}
+    <section class="grid ${reviewing ? "" : "payment-layout"}">
+      ${reviewing ? "" : paymentForm()}
+      <article class="panel" id="payment-list">
         <div class="panel-head">
-          <h2>결제 신청 검토</h2>
+          <h2>${reviewing ? "결제 검토·승인" : paymentScope === "mine" ? "내 결제 신청 내역" : "전체 결제 신청 내역"}</h2>
           <div class="row-actions">
-            <button>승인 대기 ${pendingCount}건</button>
-            ${canDownloadTransfer ? `<button data-view-link="은행 이체 파일 생성">은행 이체 전표</button>` : ""}
+            <span class="badge ${statusClass("신청")}">${!reviewing && paymentScope === "mine" ? "내 승인 대기" : "승인 대기"} ${pendingCount}건</span>
+            ${canDownloadTransfer ? `<button data-view-link="은행 이체 파일 생성">은행 이체 파일 생성</button>` : ""}
           </div>
         </div>
+        ${reviewing ? "" : `<div class="segmented-tabs"><button class="${paymentScope === "mine" ? "active" : ""}" data-payment-scope="mine">내 신청</button><button class="${paymentScope === "all" ? "active" : ""}" data-payment-scope="all">전체 내역 조회</button></div>`}
+        ${!reviewing && paymentScope === "mine" && data.payments.some((p) => !p.created_by) ? `<div class="notice">입력자 정보가 없는 이전 신청은 ‘전체 내역 조회’에서 확인할 수 있습니다.</div>` : ""}
+        ${paymentFilterToolbar(filtered.length, scope.length)}
         ${
           canDownloadTransfer
             ? `<div class="bulk-actions">
                 <label class="check-control">
                   <input type="checkbox" data-select-pending-payments />
-                  승인대기 전체 선택
+                  현재 페이지 승인대기 선택
                 </label>
-                <button class="primary" data-approve-selected-payments>선택 승인</button>
-                <button data-view-link="은행 이체 파일 생성">은행 이체 전표로 이동</button>
+                <button class="primary" data-approve-selected-payments ${data.lifecycleReady ? "" : "disabled"}>선택 승인</button>
+                <button data-view-link="은행 이체 파일 생성">은행 이체 파일 생성으로 이동</button>
               </div>`
             : ""
         }
-        ${paymentReviewCards(data, canDownloadTransfer)}
+        ${paymentReviewCards(pageData, canDownloadTransfer)}
+        <div class="pagination"><span>${filtered.length}건 중 ${(paymentPage - 1) * 25 + (filtered.length ? 1 : 0)}–${Math.min(paymentPage * 25, filtered.length)}건</span><div><button data-payment-page="${paymentPage - 1}" ${paymentPage === 1 ? "disabled" : ""}>이전</button><strong>${paymentPage} / ${pages}</strong><button data-payment-page="${paymentPage + 1}" ${paymentPage === pages ? "disabled" : ""}>다음</button></div></div>
       </article>
     </section>
   `;
@@ -2125,6 +2219,7 @@ function bankTransferView(data) {
             <span>STEP4 송금완료확인</span>
           </div>
         </div>
+        <div class="notice">파일 생성은 실제 송금이 아닙니다. 은행에서 이체 결과를 확인한 뒤 송금완료로 처리하세요. 사업소득 건은 아마란스 신고도 별도로 확인해 주세요.</div>
 
         <div class="transfer-filter-bar">
           <label>시작일<input type="date" data-transfer-start value="${escapeAttr(transferDateFilter.startDate)}" /></label>
@@ -2219,6 +2314,7 @@ function attachmentView(data) {
           </div>
         </div>
         <div class="notice">결제 신청 증빙, 업체 계좌 서류, 공사 시작 도면/기초사진을 한 화면에서 확인합니다. 파일명을 누르면 새 창으로 열립니다.</div>
+        ${workspaceSearchForm("매장, 업체, 파일명, 파일 종류")}
         ${table(["구분", "대상", "파일 종류", "파일명", "크기", "등록일", "보기"], attachmentRows(data))}
       </article>
     </section>
@@ -2234,6 +2330,7 @@ function constructionStartView(data) {
           <h2>공사 시작 접수 목록</h2>
           <button>${data.constructionStarts.length}건 접수</button>
         </div>
+        ${workspaceSearchForm("매장명, 특이사항 검색")}
         ${table(["매장", "평수", "벽장/상부장", "벽장/하부장", "진열장/유리장", "카운터/서랍형 1200", "카운터/선반형 1800", "카운터/선반형 1600", "테이블", "광고판", "도면", "기초 사진", "특이사항"], constructionStartRows(data))}
       </article>
     </section>
@@ -2324,7 +2421,8 @@ function vendorsView(data) {
           <h2>결제 계좌 목록</h2>
           <button>${data.vendors.length}개 등록</button>
         </div>
-        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "첨부", "상태", "수정"], vendorRows(data))}
+        ${workspaceSearchForm("업체명, 분류, 은행 검색")}
+        ${table(["업체", "분류", "은행", "계좌번호", "예금주", "첨부", "상태", "수정"], vendorRows({ ...data, vendors: data.vendors.filter((v) => matchesSearch(`${v.name} ${v.category} ${v.bank}`, workspaceSearch)) }))}
       </article>
     </section>
   `;
@@ -2337,6 +2435,7 @@ function storesView(data) {
 
   return `
     <section class="grid">
+      <article class="panel"><div class="panel-head"><h2>전체 매장 장부</h2><span>${data.stores.length}개 매장</span></div>${workspaceSearchForm("매장명, 지역 검색")}${table(["매장", "지역", "면적", "등록 예산", "기존 장부 사용액", "공사 상태"], data.stores.filter((s) => matchesSearch(`${s.name} ${s.region || ""}`, workspaceSearch)).map((s) => `<tr><td><strong>${safeText(s.name)}</strong></td><td>${safeText(s.region)}</td><td>${safeText(s.area)}평</td><td class="money">${formatKRW(s.budget)}</td><td class="money">${formatKRW(s.spent)}</td><td><span class="badge ${statusClass(s.status)}">${safeText(s.status)}</span></td></tr>`))}<p class="panel-footnote">기존 장부 사용액은 결제 신청 데이터에 합산하지 않습니다.</p></article>
       <article class="panel">
         <div class="panel-head">
           <h2>매장별 정산 및 문서 마감</h2>
@@ -2349,6 +2448,7 @@ function storesView(data) {
         <div class="notice">승인된 결제건과 진열장 원가 배분 금액을 합산한 뒤, 매장별 마진율을 적용해 최종 견적금액을 확정합니다. 확정 금액은 견적서와 계약서 작성 기준으로 사용합니다.</div>
         ${table(["매장", "상태", "승인 원가", "진열장 배분", "원가 합계", "마진율(%)", "공급가", "부가세", "최종 견적금액", "처리"], storeManagementRows(data, storeManagementFilter))}
       </article>
+      <details class="panel"><summary>새 매장 등록</summary>${storeForm()}</details>
     </section>
   `;
 }
@@ -2461,6 +2561,7 @@ function roleMenuRows() {
 
 function adminSettingsView(data) {
   return `
+    <section class="metrics-grid"><article class="metric-card"><span>조회된 결제</span><strong>${data.payments.length}건</strong><small>모든 페이지를 조회한 결과</small></article><article class="metric-card"><span>등록 매장</span><strong>${data.stores.length}개</strong><small>기존 장부 포함</small></article><article class="metric-card"><span>공사 원가 품목</span><strong>${(data.costParts || []).length}건</strong><small>기존 장부를 별도 유지</small></article><article class="metric-card"><span>사용자</span><strong>${data.userRoles.length}명</strong><small>현재 권한 유지</small></article></section>
     <section class="grid two">
       <article class="panel">
         <div class="panel-head">
@@ -2495,8 +2596,11 @@ function placeholderView(view) {
 
 function activeContent(data) {
   if (activeView === "대시보드") return dashboardView(data);
+  if (activeView === "공사비 집계") return costReport(data, reportFilters);
+  if (activeView === "엑셀 업로드") return importPanel(importRows);
   if (activeView === "공사 시작 접수") return constructionStartView(data);
   if (activeView === "결제 신청") return paymentView(data);
+  if (activeView === "결제 검토·승인") return paymentView(data);
   if (activeView === "결제 계좌 관리" || activeView === "업체/계좌 관리") return vendorsView(data);
   if (activeView === "첨부 파일 보기") return attachmentView(data);
   if (activeView === "매장별 공사 관리") return storesView(data);
@@ -2509,7 +2613,7 @@ function activeContent(data) {
 }
 
 function visibleNav() {
-  return roleMenus[activeRole] || nav;
+  return roleMenus[activeRole] || roleMenus["인테리어 공사실장"];
 }
 
 function roleControl() {
@@ -2537,7 +2641,7 @@ function renderLogin(message = "") {
         </div>
         <h1>로그인</h1>
         <p>권한이 있는 사용자만 공사비 데이터를 볼 수 있습니다.</p>
-        ${message ? `<div class="form-message ${message.includes("실패") ? "error" : "warning"}">${message}</div>` : ""}
+        ${message ? `<div class="form-message ${message.includes("실패") ? "error" : "warning"}" role="status">${escapeAttr(message)}</div>` : ""}
         <form id="auth-form">
           <label>이메일<input name="email" type="email" autocomplete="email" /></label>
           <label>비밀번호<input name="password" type="password" autocomplete="current-password" /></label>
@@ -2549,9 +2653,17 @@ function renderLogin(message = "") {
     </main>
   `;
 
-  document.querySelector("#auth-form").addEventListener("submit", handleLogin);
-  document.querySelector("[data-auth-action='signup']").addEventListener("click", handleSignup);
-  document.querySelector("[data-auth-action='resend']").addEventListener("click", handleResendVerification);
+  const runAuth = (handler) => async (event) => {
+    event.preventDefault();
+    const buttons = [...document.querySelectorAll("#auth-form button")];
+    buttons.forEach((button) => { button.disabled = true; });
+    try { await handler(event); }
+    catch (error) { renderLogin(`처리 실패: ${error.message || "서버 연결을 확인해 주세요."}`); }
+    finally { buttons.forEach((button) => { button.disabled = false; }); }
+  };
+  document.querySelector("#auth-form").addEventListener("submit", runAuth(handleLogin));
+  document.querySelector("[data-auth-action='signup']").addEventListener("click", runAuth(handleSignup));
+  document.querySelector("[data-auth-action='resend']").addEventListener("click", runAuth(handleResendVerification));
 }
 
 async function handleLogin(event) {
@@ -2565,14 +2677,14 @@ async function handleLogin(event) {
     return;
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), "로그인 연결 시간이 초과됐습니다. 잠시 후 다시 시도해 주세요.");
   if (error) {
     renderLogin(`로그인 실패: ${error.message}`);
     return;
   }
 
   currentUser = data.user;
-  activeRole = await loadUserRole(currentUser);
+  activeRole = await withTimeout(loadUserRole(currentUser), "권한 조회 시간이 초과됐습니다.");
   activeView = visibleNav()[0];
   await refreshDataAndRender();
 }
@@ -2630,6 +2742,7 @@ async function handleResendVerification() {
 }
 
 async function signOut() {
+  if (LOCAL_PREVIEW_MODE) { render("샘플 미리보기에는 로그인 세션이 없습니다."); return; }
   await supabase.auth.signOut();
   currentUser = null;
   activeRole = "인테리어 공사실장";
@@ -2651,18 +2764,20 @@ function render(notice = "") {
           <small>공사비 관리 시스템</small>
         </div>
       </div>
-      <nav>
+      <nav aria-label="업무 메뉴">
         ${visibleNav()
           .map(
-            (item) => `<button data-view="${item}" class="${item === activeView ? "active" : ""}">${item}</button>`
+            (item, index) => `${navigationSection(item, index)}<button data-view="${item}" class="${item === activeView ? "active" : ""}" ${item === activeView ? 'aria-current="page"' : ""}><span class="nav-icon">${navigationIcon(item)}</span><span>${item}</span>${navigationBadge(item)}</button>`
           )
           .join("")}
       </nav>
+      <div class="sidebar-bottom"><span class="live-dot"></span> HAKA Construction <small>공사비 관리 워크스페이스</small><button class="mobile-signout" data-mobile-signout>로그아웃</button></div>
     </aside>
     <main class="shell ${activeView === "은행 이체 파일 생성" ? "transfer-shell" : ""}">
       <header class="topbar">
+        <button class="menu-toggle" data-menu-toggle aria-label="업무 메뉴 열기" aria-expanded="false">☰</button>
         <div>
-          <p>${activeRole}</p>
+          <p>WORKSPACE / ${activeRole}</p>
           <h1>${safeText(activeView)}</h1>
         </div>
         <div class="actions">
@@ -2680,7 +2795,10 @@ function render(notice = "") {
         </div>
       </header>
 
-      ${notice ? `<div class="toast">${notice}</div>` : ""}
+      <div class="workspace-meta"><span><i class="live-dot"></i>${LOCAL_PREVIEW_MODE ? "샘플 데이터 미리보기 · 운영 DB 연결 없음" : "운영 데이터"} · ${lastLoadedAt ? lastLoadedAt.toLocaleTimeString("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" }) : ""} 조회</span><div>${LOCAL_PREVIEW_MODE ? `<button data-preview-role="전체 관리자">관리자 보기</button><button data-preview-role="인테리어 공사실장">현장 보기</button>` : ""}<button data-refresh>새로고침 ↻</button></div></div>
+
+      ${notice ? `<div class="toast" role="status">${escapeAttr(notice)}</div>` : ""}
+      ${activeRole === "전체 관리자" ? incomeReminder(currentData) : ""}
       ${
         dataLoadWarnings.length
           ? `<div class="data-alert">
@@ -2695,8 +2813,7 @@ function render(notice = "") {
 
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
-      activeView = button.dataset.view;
-      render();
+      navigateTo(button.dataset.view);
     });
   });
 
@@ -2711,13 +2828,11 @@ function render(notice = "") {
   });
 
   document.querySelector("[data-sign-out]")?.addEventListener("click", signOut);
+  document.querySelector("[data-mobile-signout]")?.addEventListener("click", signOut);
 
   document.querySelectorAll("[data-view-link]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (visibleNav().includes(button.dataset.viewLink)) {
-        activeView = button.dataset.viewLink;
-      }
-      render();
+      navigateTo(button.dataset.viewLink);
     });
   });
 
@@ -2853,9 +2968,13 @@ function render(notice = "") {
 
   document.querySelectorAll("[data-payment-edit]").forEach((button) => {
     button.addEventListener("click", () => {
+      const payment = currentData.payments.find((p) => p.id === Number(button.dataset.paymentEdit));
+      if (!canEditPayment(payment, currentUser) || !canLeaveForm()) return;
       editingPaymentId = Number(button.dataset.paymentEdit);
+      importedDraft = null;
       activeView = "결제 신청";
       render("선택한 결제 신청을 수정 중입니다.");
+      document.querySelector("#payment-form")?.closest("article")?.scrollIntoView({ block: "start" });
     });
   });
 
@@ -2867,10 +2986,52 @@ function render(notice = "") {
   document.querySelectorAll("[data-payment-id][data-payment-status]").forEach((button) => {
     button.addEventListener("click", () => {
       const status = button.dataset.paymentStatus;
-      if (status === "반려" && !window.confirm("이 결제 신청을 취소 처리할까요? 기록은 반려 상태로 남습니다.")) return;
-      updatePaymentStatus(Number(button.dataset.paymentId), status);
+      showPaymentDecision(Number(button.dataset.paymentId), status);
     });
   });
+  document.querySelectorAll("[data-payment-history]").forEach((button) => button.addEventListener("click", () => showPaymentHistory(Number(button.dataset.paymentHistory))));
+  document.querySelectorAll("[data-payment-resubmit]").forEach((button) => button.addEventListener("click", () => {
+    const payment = currentData.payments.find((p) => p.id === Number(button.dataset.paymentResubmit));
+    if (!canResubmitPayment(payment, currentUser) || !canLeaveForm()) return;
+    const { id, ...draft } = structuredClone(payment);
+    importedDraft = { ...draft, resubmitted_from: id };
+    editingPaymentId = null; activeView = "결제 신청";
+    paymentScope = "mine"; paymentPage = 1;
+    paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
+    render("기존 신청은 보존하고 새 신청서를 불러왔습니다. 수정 후 제출해 주세요.");
+    document.querySelector("#payment-form")?.closest("article")?.scrollIntoView({ block: "start" });
+  }));
+  document.querySelectorAll("[data-preview-role]").forEach((button) => button.addEventListener("click", () => {
+    if (!LOCAL_PREVIEW_MODE || !canLeaveForm()) return;
+    activeRole = button.dataset.previewRole;
+    currentUser = activeRole === "전체 관리자" ? previewActors.admin : previewActors.staff;
+    paymentScope = "mine"; editingPaymentId = null; importedDraft = null;
+    paymentFilters = { search: "", status: "", tax: "", start: "", end: "" };
+    activeView = visibleNav()[0]; render();
+  }));
+  bindWorkspaceEvents();
 }
 
-startApp();
+function navigationSection(item, index) {
+  const title = index === 0 ? "주 업무" : item === "매장별 공사 관리" || (activeRole !== "전체 관리자" && item === "공사 시작 접수") ? "현장·기준정보" : item === "진열장 원가 배분" ? "원가·문서" : item === "관리자 설정" ? "관리" : "";
+  return title ? `<span class="nav-heading">${title}</span>` : "";
+}
+
+function navigationBadge(item) {
+  const count = item === "결제 신청" ? currentData.payments.filter((p) => canEditPayment(p, currentUser)).length : item === "결제 검토·승인" ? currentData.payments.filter((p) => p.status === "신청").length : 0;
+  return count ? `<small>${count}</small>` : "";
+}
+
+function navigationIcon(view) {
+  const paths = {
+    "대시보드": "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    "공사비 집계": "M4 20V10h4v10 M10 20V4h4v16 M16 20v-7h4v7",
+    "결제 신청": "M5 3h14v18l-3-2-4 2-4-2-3 2z M8 8h8 M8 12h5",
+    "결제 검토·승인": "M5 3h14v18H5z M8 8h8 M8 13l3 3 5-6",
+    "은행 이체 파일 생성": "M3 7l9-4 9 4H3z M5 10v7 M12 10v7 M19 10v7 M3 21h18",
+    "결제 계좌 관리": "M3 5h18v14H3z M3 10h18 M6 15h4",
+    "엑셀 업로드": "M12 16V3 M7 8l5-5 5 5 M4 15v6h16v-6",
+    "관리자 설정": "M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8 M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2"
+  };
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[view] || 'M5 3h10l4 4v14H5z M14 3v5h5 M8 12h8 M8 16h6'}"/></svg>`;
+}

@@ -6,3 +6,5 @@ dist
 supabase/.temp
 vite-dev.log
 vite-dev.err
+.private-backups/
+qa-artifacts/
